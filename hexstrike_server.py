@@ -2925,8 +2925,8 @@ class BugBountyWorkflowManager:
             "discovery": {"priority": 7, "tools": ["netexec"], "modules": ["users", "groups", "computers"]}
         }
 
-        # Initialize CVE Intelligence Manager for credential operations
-        self.cve_manager = CVEIntelligenceManager()
+        # Lazily initialize CVE Intelligence Manager once the class is defined
+        self._cve_manager: Optional["CVEIntelligenceManager"] = None
 
         self.reconnaissance_tools = [
             {"tool": "enumdns", "phase": "dns_intelligence", "priority": 0},
@@ -2940,6 +2940,13 @@ class BugBountyWorkflowManager:
             {"tool": "paramspider", "phase": "parameter_discovery", "priority": 8},
             {"tool": "arjun", "phase": "parameter_discovery", "priority": 9}
         ]
+
+    @property
+    def cve_manager(self) -> "CVEIntelligenceManager":
+        """Return a cached CVE intelligence manager, instantiating on demand."""
+        if self._cve_manager is None:
+            self._cve_manager = CVEIntelligenceManager()
+        return self._cve_manager
 
     def create_reconnaissance_workflow(self, target: BugBountyTarget) -> Dict[str, Any]:
         """Create comprehensive reconnaissance workflow for bug bounty"""
