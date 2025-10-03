@@ -5723,6 +5723,395 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
 
         return result
 
+    @mcp.tool()
+    def netexec_credential_dump(target_host: str, username: str, password: str = "",
+                               hash_value: str = "", stealth_level: str = "medium") -> Dict[str, Any]:
+        """
+        Execute comprehensive credential dumping workflow using NetExec modules.
+
+        This tool leverages NetExec's advanced modules for extracting credentials from Windows systems
+        including SAM, LSA, LSASS, DPAPI, NTDS, gMSA, and LAPS credentials.
+
+        Args:
+            target_host: Target Windows host (IP or hostname)
+            username: Valid username for authentication
+            password: Password for authentication (if not using hash)
+            hash_value: NTLM hash for pass-the-hash authentication
+            stealth_level: Operation stealth level (low, medium, high)
+
+        Returns:
+            Comprehensive credential extraction results with OPSEC considerations
+        """
+        credentials = {
+            "username": username,
+            "admin_access": True  # Assume admin access for credential dumping
+        }
+
+        if password:
+            credentials["password"] = password
+        elif hash_value:
+            credentials["hash"] = hash_value
+        else:
+            return {"error": "Either password or hash_value must be provided", "success": False}
+
+        data = {
+            "target_host": target_host,
+            "credentials": credentials,
+            "stealth_level": stealth_level
+        }
+
+        logger.info(f"⚡ Starting comprehensive credential dumping on {target_host} (stealth: {stealth_level})")
+        result = hexstrike_client.safe_post("api/intelligence/credential-dump", data)
+
+        if result.get("success"):
+            creds_found = result.get("credentials_extracted", 0)
+            modules_run = result.get("modules_executed", 0)
+            logger.info(f"✅ Credential dumping completed: {creds_found} credentials from {modules_run} modules")
+
+            # Log security recommendations
+            recommendations = result.get("recommendations", [])
+            if recommendations:
+                logger.info("🛡️ Security recommendations:")
+                for rec in recommendations[:3]:  # Show first 3
+                    logger.info(f"   • {rec}")
+        else:
+            logger.error(f"❌ Credential dumping failed for {target_host}")
+
+        return result
+
+    @mcp.tool()
+    def netexec_post_exploitation_plan(target_host: str, username: str = "",
+                                      password: str = "", stealth_level: str = "medium") -> Dict[str, Any]:
+        """
+        Generate comprehensive post-exploitation workflow plan using NetExec modules.
+
+        Creates a structured plan for credential access, privilege escalation, persistence,
+        and lateral movement using NetExec's extensive module library.
+
+        Args:
+            target_host: Target host for post-exploitation
+            username: Username for authentication (optional for planning)
+            password: Password for authentication (optional for planning)
+            stealth_level: Desired stealth level for operations
+
+        Returns:
+            Detailed post-exploitation workflow with tools, techniques, and OPSEC guidance
+        """
+        credentials = {}
+        if username:
+            credentials["username"] = username
+        if password:
+            credentials["password"] = password
+
+        data = {
+            "target_host": target_host,
+            "credentials": credentials,
+            "stealth_level": stealth_level
+        }
+
+        logger.info(f"🎯 Creating post-exploitation workflow for {target_host}")
+        result = hexstrike_client.safe_post("api/intelligence/post-exploitation", data)
+
+        if result.get("success"):
+            workflow = result.get("workflow", {})
+            phases = len(workflow.get("phases", []))
+            estimated_time = workflow.get("estimated_time", 0)
+
+            logger.info(f"📋 Post-exploitation plan created: {phases} phases, ~{estimated_time//60}min estimated")
+            logger.info(f"🔒 Risk Level: {workflow.get('risk_level', 'unknown')}")
+
+            # Log phase overview
+            for i, phase in enumerate(workflow.get("phases", [])[:3], 1):
+                logger.info(f"   Phase {i}: {phase.get('name', 'unknown')} - {len(phase.get('tools', []))} tools")
+        else:
+            logger.error(f"❌ Post-exploitation planning failed for {target_host}")
+
+        return result
+
+    @mcp.tool()
+    def netexec_sam_dump(target_host: str, username: str, password: str = "",
+                        hash_value: str = "") -> Dict[str, Any]:
+        """
+        Extract SAM database hashes using NetExec.
+
+        Extracts NTLM password hashes from the Windows SAM (Security Account Manager) database.
+        Requires local administrator privileges on the target system.
+
+        Args:
+            target_host: Target Windows system
+            username: Administrator username
+            password: Administrator password (if not using hash)
+            hash_value: NTLM hash for pass-the-hash attack
+
+        Returns:
+            SAM database hash extraction results
+        """
+        data = {
+            "target": target_host,
+            "protocol": "smb",
+            "username": username,
+            "module": "",
+            "additional_args": "--sam"
+        }
+
+        if password:
+            data["password"] = password
+        elif hash_value:
+            data["hash"] = hash_value
+        else:
+            return {"error": "Either password or hash_value must be provided", "success": False}
+
+        logger.info(f"🔓 Extracting SAM hashes from {target_host}")
+        result = hexstrike_client.safe_post("api/tools/netexec", data)
+
+        if result.get("success"):
+            logger.info(f"✅ SAM extraction completed for {target_host}")
+        else:
+            logger.error(f"❌ SAM extraction failed for {target_host}")
+
+        return result
+
+    @mcp.tool()
+    def netexec_lsass_dump(target_host: str, username: str, password: str = "",
+                          hash_value: str = "", method: str = "lsassy") -> Dict[str, Any]:
+        """
+        Extract credentials from LSASS memory using NetExec.
+
+        Dumps cleartext passwords and hashes from LSASS process memory using various methods
+        including lsassy, nanodump, or other LSASS dumping techniques.
+
+        Args:
+            target_host: Target Windows system
+            username: Administrator username
+            password: Administrator password (if not using hash)
+            hash_value: NTLM hash for pass-the-hash attack
+            method: LSASS dumping method (lsassy, nanodump, etc.)
+
+        Returns:
+            LSASS memory dump results with cleartext credentials
+        """
+        data = {
+            "target": target_host,
+            "protocol": "smb",
+            "username": username,
+            "module": method
+        }
+
+        if password:
+            data["password"] = password
+        elif hash_value:
+            data["hash"] = hash_value
+        else:
+            return {"error": "Either password or hash_value must be provided", "success": False}
+
+        logger.info(f"🧠 Extracting LSASS memory from {target_host} using {method}")
+        result = hexstrike_client.safe_post("api/tools/netexec", data)
+
+        if result.get("success"):
+            logger.info(f"✅ LSASS extraction completed for {target_host}")
+            logger.warning("⚠️ LSASS dumping is highly detectable - monitor for EDR alerts")
+        else:
+            logger.error(f"❌ LSASS extraction failed for {target_host}")
+
+        return result
+
+    @mcp.tool()
+    def netexec_dpapi_extract(target_host: str, username: str, password: str = "",
+                             hash_value: str = "") -> Dict[str, Any]:
+        """
+        Extract DPAPI protected credentials using NetExec.
+
+        Decrypts DPAPI-protected credentials including browser passwords, Wi-Fi passwords,
+        and other encrypted user data stored by Windows applications.
+
+        Args:
+            target_host: Target Windows system
+            username: Valid username (admin not required for user's own DPAPI data)
+            password: User password (if not using hash)
+            hash_value: NTLM hash for authentication
+
+        Returns:
+            DPAPI credential extraction results
+        """
+        data = {
+            "target": target_host,
+            "protocol": "smb",
+            "username": username,
+            "module": "dpapi"
+        }
+
+        if password:
+            data["password"] = password
+        elif hash_value:
+            data["hash"] = hash_value
+        else:
+            return {"error": "Either password or hash_value must be provided", "success": False}
+
+        logger.info(f"🔑 Extracting DPAPI credentials from {target_host}")
+        result = hexstrike_client.safe_post("api/tools/netexec", data)
+
+        if result.get("success"):
+            logger.info(f"✅ DPAPI extraction completed for {target_host}")
+            logger.info("🔍 Check results for browser passwords, Wi-Fi keys, and application credentials")
+        else:
+            logger.error(f"❌ DPAPI extraction failed for {target_host}")
+
+        return result
+
+    # ============================================================================
+    # MATRIX AGENTS ENHANCEMENT TOOLS
+    # ============================================================================
+
+    @mcp.tool()
+    def rfi_comprehensive_assessment(target_url: str, parameters: str = "") -> Dict[str, Any]:
+        """
+        🎖️ Commander Locke: Execute comprehensive Remote File Inclusion assessment.
+
+        Performs advanced RFI testing with parameter discovery, vulnerability testing,
+        exploitation simulation, and bypass technique validation using the AdvancedRFIExploiter.
+
+        Args:
+            target_url: Target web application URL to assess
+            parameters: Optional comma-separated list of parameters to test
+
+        Returns:
+            Comprehensive RFI assessment results with exploitation readiness status
+        """
+        data = {
+            "target_url": target_url
+        }
+
+        if parameters:
+            data["parameters"] = [p.strip() for p in parameters.split(",")]
+
+        logger.info(f"🎖️ Commander Locke: Starting RFI assessment on {target_url}")
+        result = hexstrike_client.safe_post("api/intelligence/rfi-assessment", data)
+
+        if result.get("success"):
+            assessment = result.get("assessment_results", {})
+            summary = assessment.get("summary", {})
+            vuln_params = len(summary.get("vulnerable_parameters", []))
+
+            logger.info(f"🔥 RFI assessment completed - {vuln_params} vulnerable parameters found")
+
+            if summary.get("exploitation_ready"):
+                logger.warning("⚠️ Target is ready for RFI exploitation!")
+            else:
+                logger.info("✅ No immediate RFI exploitation vectors detected")
+        else:
+            logger.error(f"❌ RFI assessment failed for {target_url}")
+
+        return result
+
+    @mcp.tool()
+    def ssh_comprehensive_assessment(target_host: str, username: str = "", password: str = "") -> Dict[str, Any]:
+        """
+        🎯 Neo: Execute comprehensive SSH exploitation assessment with MITRE ATT&CK mapping.
+
+        Performs 5-phase SSH assessment: reconnaissance, credential enumeration,
+        vulnerability verification, exploitation, and post-exploitation intelligence gathering.
+
+        Args:
+            target_host: Target SSH server to assess
+            username: Optional username for authentication testing
+            password: Optional password for authentication testing
+
+        Returns:
+            Comprehensive SSH assessment with MITRE ATT&CK technique mapping
+        """
+        data = {
+            "target_host": target_host
+        }
+
+        if username and password:
+            data["credentials"] = {
+                "username": username,
+                "password": password
+            }
+
+        logger.info(f"🎯 Neo: Starting SSH assessment on {target_host}")
+        result = hexstrike_client.safe_post("api/intelligence/ssh-assessment", data)
+
+        if result.get("success"):
+            assessment = result.get("assessment_results", {})
+            summary = assessment.get("summary", {})
+            mitre_mapping = result.get("mitre_attack_mapping", [])
+
+            logger.info(f"⚡ SSH assessment completed - Risk Level: {summary.get('risk_level', 'unknown').upper()}")
+
+            if summary.get("exploitation_success"):
+                logger.warning("🚨 SSH exploitation successful!")
+                logger.info(f"📊 MITRE ATT&CK techniques observed: {len(mitre_mapping)}")
+
+            if summary.get("credentials_found", 0) > 0:
+                logger.info(f"🔐 Credentials found: {summary['credentials_found']}")
+
+        else:
+            logger.error(f"❌ SSH assessment failed for {target_host}")
+
+        return result
+
+    @mcp.tool()
+    def multi_exploit_workflow(
+        target: str,
+        workflow_type: str = "comprehensive",
+        username: str = "",
+        password: str = ""
+    ) -> Dict[str, Any]:
+        """
+        🚀 Matrix Agents: Execute integrated multi-technique exploitation workflow.
+
+        Orchestrates Neo (SSH), Commander Locke (RFI), and Trinity (credential dumping)
+        in a coordinated attack simulation with integrated intelligence correlation.
+
+        Args:
+            target: Target host or URL for assessment
+            workflow_type: Type of workflow (comprehensive/ssh/rfi/credential_dump)
+            username: Optional username for authentication
+            password: Optional password for authentication
+
+        Returns:
+            Integrated exploitation workflow results with cross-technique correlation
+        """
+        data = {
+            "target": target,
+            "workflow_type": workflow_type
+        }
+
+        if username and password:
+            data["credentials"] = {
+                "username": username,
+                "password": password
+            }
+
+        logger.info(f"🚀 Matrix Agents: Starting {workflow_type} workflow on {target}")
+        logger.info("👥 Agents: Neo (SSH) + Commander Locke (RFI) + Trinity (Credentials)")
+
+        result = hexstrike_client.safe_post("api/intelligence/multi-exploit-workflow", data)
+
+        if result.get("success"):
+            workflow_results = result.get("workflow_results", {})
+            summary = workflow_results.get("summary", {})
+            phases = len(workflow_results.get("phases", {}))
+
+            overall_risk = summary.get("overall_risk", "info").upper()
+            exploitation_vectors = summary.get("exploitation_vectors", [])
+
+            logger.info(f"🎭 Multi-exploit workflow completed: {phases} phases executed")
+            logger.info(f"🎯 Overall Risk Level: {overall_risk}")
+
+            if exploitation_vectors:
+                logger.warning(f"⚔️ Active exploitation vectors: {', '.join(exploitation_vectors)}")
+
+            credentials_extracted = summary.get("credentials_extracted", 0)
+            if credentials_extracted > 0:
+                logger.warning(f"🔐 {credentials_extracted} credentials extracted across workflow")
+
+        else:
+            logger.error(f"❌ Multi-exploit workflow failed for {target}")
+
+        return result
+
     return mcp
 
 def parse_args():
