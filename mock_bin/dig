@@ -1,0 +1,6 @@
+#!/bin/bash
+echo "; <<>> DiG 9.18.1-1-Debian (mock) <<>> $@"
+echo ";; ANSWER SECTION:"
+echo "inco.local.    3600    IN    A    192.168.1.10"
+echo "inco.local.    3600    IN    MX   10 mail.inco.local."
+exit 0

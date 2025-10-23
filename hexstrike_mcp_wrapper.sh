@@ -8,6 +8,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Change to the script directory
 cd "$SCRIPT_DIR"
 
+# Ensure BOAZ assets resolve even when launched via external MCP clients
+export BOAZ_PATH="${BOAZ_PATH:-$SCRIPT_DIR/BOAZ_beta}"
+
 # Debug logging to stderr (will appear in Claude Desktop logs)
 echo "HexStrike MCP Wrapper: Starting..." >&2
 echo "Script directory: $SCRIPT_DIR" >&2

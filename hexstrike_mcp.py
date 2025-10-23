@@ -22,12 +22,20 @@ import os
 import argparse
 import logging
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Tuple
 import requests
 import time
 from datetime import datetime
 
 from mcp.server.fastmcp import FastMCP
+
+from pointer_leak_agent import (
+    plan_pointer_leak_campaign,
+    build_pointer_leak_patterns,
+    decode_residues,
+    chinese_remainder_solver,
+)
+from pickle_guard_agent import scan as pickle_guard_scan
 
 class HexStrikeColors:
     """Enhanced color palette matching the server's ModernVisualEngine.COLORS"""
@@ -276,6 +284,220 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
         Configured FastMCP instance
     """
     mcp = FastMCP("hexstrike-ai-mcp")
+
+    # ============================================================================
+    # BOAZ PAYLOAD EVASION FRAMEWORK (5 TOOLS)
+    # ============================================================================
+
+    @mcp.tool()
+    def boaz_generate_payload(
+        input_file: str,
+        output_file: str,
+        loader: int = 16,
+        encoding: str = "",
+        compiler: str = "mingw",
+        shellcode_type: str = "donut",
+        obfuscate: bool = False,
+        obfuscate_api: bool = False,
+        anti_emulation: bool = False,
+        sleep: bool = False,
+        dream: int = 0,
+        etw: bool = False,
+        api_unhooking: bool = False,
+        god_speed: bool = False,
+        cfg: bool = False,
+        self_deletion: bool = False,
+        anti_forensic: bool = False,
+        dll: bool = False,
+        cpl: bool = False,
+        entropy: int = 0,
+        sign_certificate: str = "",
+        sgn_encode: bool = False,
+        stardust: bool = False,
+        syswhisper: int = 0,
+        junk_api: bool = False,
+        mllvm: str = "",
+        binder: str = "",
+        watermark: bool = False,
+        icon: bool = False,
+        detect_hooks: bool = False,
+        divide: bool = False,
+    ) -> Dict[str, Any]:
+        """Generate evasive payloads leveraging the BOAZ framework."""
+
+        payload = {
+            "input_file": input_file,
+            "output_file": output_file,
+            "loader": loader,
+            "compiler": compiler,
+            "shellcode_type": shellcode_type,
+            "obfuscate": obfuscate,
+            "obfuscate_api": obfuscate_api,
+            "anti_emulation": anti_emulation,
+            "sleep": sleep,
+            "etw": etw,
+            "api_unhooking": api_unhooking,
+            "god_speed": god_speed,
+            "cfg": cfg,
+            "self_deletion": self_deletion,
+            "anti_forensic": anti_forensic,
+            "dll": dll,
+            "cpl": cpl,
+            "sgn_encode": sgn_encode,
+            "stardust": stardust,
+            "junk_api": junk_api,
+            "watermark": watermark,
+            "icon": icon,
+            "detect_hooks": detect_hooks,
+            "divide": divide,
+        }
+
+        if encoding:
+            payload["encoding"] = encoding
+        if dream > 0:
+            payload["dream"] = dream
+        if entropy > 0:
+            payload["entropy"] = entropy
+        if sign_certificate:
+            payload["sign_certificate"] = sign_certificate
+        if syswhisper > 0:
+            payload["syswhisper"] = syswhisper
+        if mllvm:
+            payload["mllvm"] = mllvm
+        if binder:
+            payload["binder"] = binder
+
+        logger.info(
+            f"{HexStrikeColors.FIRE_RED}🔥 BOAZ: Generating evasive payload{HexStrikeColors.RESET}"
+        )
+        logger.info(f"  📂 Input: {input_file}")
+        logger.info(f"  📂 Output: {output_file}")
+        logger.info(f"  🎯 Loader: {loader}")
+        if encoding:
+            logger.info(f"  🔒 Encoding: {encoding}")
+
+        result = hexstrike_client.safe_post("api/boaz/generate-payload", payload)
+
+        if result.get("success"):
+            logger.info(
+                f"{HexStrikeColors.SUCCESS}✅ BOAZ: Payload generated successfully{HexStrikeColors.RESET}"
+            )
+            logger.info(f"  📊 Size: {result.get('file_size', 0)} bytes")
+        else:
+            logger.error(
+                f"{HexStrikeColors.ERROR}❌ BOAZ: Payload generation failed{HexStrikeColors.RESET}"
+            )
+
+        return result
+
+    @mcp.tool()
+    def boaz_list_loaders(category: str = "all") -> Dict[str, Any]:
+        """List BOAZ process injection loaders by category."""
+
+        logger.info(
+            f"{HexStrikeColors.CRIMSON}📋 BOAZ: Listing loaders (category={category}){HexStrikeColors.RESET}"
+        )
+        result = hexstrike_client.safe_get("api/boaz/list-loaders", {"category": category})
+
+        if result.get("success"):
+            logger.info(
+                f"{HexStrikeColors.SUCCESS}✅ BOAZ: Found {result.get('count', 0)} loaders{HexStrikeColors.RESET}"
+            )
+        else:
+            logger.error(
+                f"{HexStrikeColors.ERROR}❌ BOAZ: Failed to list loaders{HexStrikeColors.RESET}"
+            )
+
+        return result
+
+    @mcp.tool()
+    def boaz_list_encoders() -> Dict[str, Any]:
+        """List available BOAZ encoding schemes."""
+
+        logger.info(
+            f"{HexStrikeColors.BLOOD_RED}📋 BOAZ: Listing encoders{HexStrikeColors.RESET}"
+        )
+        result = hexstrike_client.safe_get("api/boaz/list-encoders")
+
+        if result.get("success"):
+            logger.info(
+                f"{HexStrikeColors.SUCCESS}✅ BOAZ: Found {result.get('count', 0)} encoders{HexStrikeColors.RESET}"
+            )
+        else:
+            logger.error(
+                f"{HexStrikeColors.ERROR}❌ BOAZ: Failed to list encoders{HexStrikeColors.RESET}"
+            )
+
+        return result
+
+    @mcp.tool()
+    def boaz_analyze_binary(file_path: str) -> Dict[str, Any]:
+        """Analyze a binary file's entropy and characteristics via BOAZ."""
+
+        logger.info(
+            f"{HexStrikeColors.RUBY}🔬 BOAZ: Analyzing binary: {file_path}{HexStrikeColors.RESET}"
+        )
+        result = hexstrike_client.safe_post(
+            "api/boaz/analyze-binary", {"file_path": file_path}
+        )
+
+        if result.get("success"):
+            entropy = result.get("entropy", 0)
+            logger.info(
+                f"{HexStrikeColors.SUCCESS}✅ BOAZ: Analysis complete{HexStrikeColors.RESET}"
+            )
+            logger.info(f"  📊 Entropy: {entropy:.4f}")
+
+            if entropy > 7.5:
+                logger.warning(
+                    f"  {HexStrikeColors.ERROR}🔴 HIGH ENTROPY - May be detected{HexStrikeColors.RESET}"
+                )
+            elif entropy > 6.5:
+                logger.info(
+                    f"  {HexStrikeColors.WARNING}🟡 MEDIUM ENTROPY{HexStrikeColors.RESET}"
+                )
+            else:
+                logger.info(
+                    f"  {HexStrikeColors.SUCCESS}🟢 LOW ENTROPY - Good for evasion{HexStrikeColors.RESET}"
+                )
+        else:
+            logger.error(
+                f"{HexStrikeColors.ERROR}❌ BOAZ: Analysis failed{HexStrikeColors.RESET}"
+            )
+
+        return result
+
+    @mcp.tool()
+    def boaz_validate_options(
+        loader: int = 0, encoding: str = "", compiler: str = ""
+    ) -> Dict[str, Any]:
+        """Validate BOAZ configuration selections before payload generation."""
+
+        data: Dict[str, Any] = {}
+        if loader > 0:
+            data["loader"] = loader
+        if encoding:
+            data["encoding"] = encoding
+        if compiler:
+            data["compiler"] = compiler
+
+        logger.info(
+            f"{HexStrikeColors.SCARLET}✔️  BOAZ: Validating configuration{HexStrikeColors.RESET}"
+        )
+        result = hexstrike_client.safe_post("api/boaz/validate-options", data)
+
+        if result.get("success"):
+            logger.info(
+                f"{HexStrikeColors.SUCCESS}✅ BOAZ: Configuration valid{HexStrikeColors.RESET}"
+            )
+        else:
+            logger.warning(
+                f"{HexStrikeColors.WARNING}⚠️  BOAZ: Configuration issues found{HexStrikeColors.RESET}"
+            )
+            for issue in result.get("issues", []):
+                logger.warning(f"  - {issue}")
+
+        return result
 
     # ============================================================================
     # CORE NETWORK SCANNING TOOLS
@@ -1252,6 +1474,75 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
         return result
 
     @mcp.tool()
+    def lfi_hunter_scan(
+        target_url: str,
+        wordlist: str = "",
+        cookie_file: str = "",
+        login_url: str = "",
+        username: str = "",
+        password: str = "",
+        read_file: str = "",
+        config_file: str = "",
+        auth: bool = False,
+        aggressive: bool = False,
+        base64_decode: bool = False,
+        fuzzing: bool = False,
+        user_form: str = "",
+        pass_form: str = "",
+        readuser_file: str = "",
+        readpass_file: str = "",
+        parameter_template: str = "",
+        params_wordlist: str = "",
+        status_filter: str = "",
+        reverse_shell_ip: str = "",
+        reverse_shell_port: str = "",
+        webshell: bool = False,
+        additional_args: str = "",
+    ) -> Dict[str, Any]:
+        """Executa o LFI Hunter para avaliar exposições de Local File Inclusion."""
+
+        if not target_url:
+            error_msg = "target_url é obrigatório para o LFI Hunter"
+            logger.error(f"❌ {error_msg}")
+            return {"success": False, "error": error_msg}
+
+        data = {
+            "target_url": target_url,
+            "wordlist": wordlist,
+            "cookie_file": cookie_file,
+            "login_url": login_url,
+            "username": username,
+            "password": password,
+            "read_file": read_file,
+            "config_file": config_file,
+            "auth": auth,
+            "aggressive": aggressive,
+            "base64_decode": base64_decode,
+            "fuzzing": fuzzing,
+            "user_form": user_form,
+            "pass_form": pass_form,
+            "readuser_file": readuser_file,
+            "readpass_file": readpass_file,
+            "parameter_template": parameter_template,
+            "params_wordlist": params_wordlist,
+            "status_filter": status_filter,
+            "reverse_shell_ip": reverse_shell_ip,
+            "reverse_shell_port": reverse_shell_port,
+            "webshell": webshell,
+            "additional_args": additional_args,
+        }
+
+        logger.info(f"🪓 Iniciando LFI Hunter contra {target_url}")
+        result = hexstrike_client.safe_post("api/tools/lfi-hunter", data)
+
+        if result.get("success"):
+            logger.info("✅ LFI Hunter concluído com sucesso")
+        else:
+            logger.error("❌ LFI Hunter falhou")
+
+        return result
+
+    @mcp.tool()
     def netexec_scan(target: str, protocol: str = "smb", username: str = "", password: str = "", hash_value: str = "", module: str = "", additional_args: str = "") -> Dict[str, Any]:
         """
         Execute NetExec (formerly CrackMapExec) for network enumeration with enhanced logging.
@@ -1283,6 +1574,111 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
             logger.info(f"✅ NetExec scan completed for {target}")
         else:
             logger.error(f"❌ NetExec scan failed for {target}")
+        return result
+
+    @mcp.tool()
+    def networkhound_enumeration(
+        dc: str,
+        domain: str,
+        username: str,
+        password: str = "",
+        hashes: str = "",
+        kerberos: bool = False,
+        ccache: str = "",
+        dns: str = "",
+        dns_tcp: bool = False,
+        port_scan: bool = False,
+        shadow_it: bool = False,
+        valid_smb: bool = False,
+        valid_http: bool = False,
+        ssl: bool = False,
+        verbose: bool = False,
+        skip_ping: bool = False,
+        scan_timeout: int = 0,
+        scan_threads: int = 0,
+        ports: str = "",
+        output: str = "",
+        additional_args: str = "",
+        no_pass: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Execute NetworkHound for Active Directory network topology analysis.
+
+        Requires the `/opt/NetworkHound` deployment with the `networkhound-venv`
+        virtual environment described upstream. Kerberos flows honour the
+        optional `ccache` path by exporting `KRB5CCNAME` before execution.
+
+        Args:
+            dc: Domain Controller hostname or IP.
+            domain: Active Directory domain (e.g., corp.local).
+            username: Account used for authentication.
+            password: Password authentication (optional).
+            hashes: NTLM hash authentication in LM:NT or NT form.
+            kerberos: Use Kerberos ticket authentication (`KRB5CCNAME` required).
+            ccache: Path to Kerberos credential cache to export.
+            dns: Alternate DNS resolver.
+            dns_tcp: Force DNS over TCP (useful with proxychains).
+            port_scan: Enable TCP port scanning and service validation.
+            shadow_it: Discover non-domain devices via subnet scanning.
+            valid_smb: Validate SMB connectivity and shares.
+            valid_http: Validate HTTP/HTTPS services.
+            ssl: Collect SSL certificate metadata during validation.
+            verbose: Emit verbose output for troubleshooting.
+            skip_ping: Skip ICMP probing before port scan (`-Pn`).
+            scan_timeout: Port scan timeout in seconds.
+            scan_threads: Number of scanning threads.
+            ports: Custom port list (comma-separated).
+            output: Output file path (defaults to tool value when omitted).
+            additional_args: Raw CLI switches forwarded to NetworkHound.
+            no_pass: Allow unauthenticated (`--no-pass`) execution attempt.
+
+        Returns:
+            Command execution metadata from the HexStrike server.
+        """
+
+        payload: Dict[str, Any] = {
+            "dc": dc,
+            "domain": domain,
+            "username": username,
+            "kerberos": kerberos,
+            "dns_tcp": dns_tcp,
+            "port_scan": port_scan,
+            "shadow_it": shadow_it,
+            "valid_smb": valid_smb,
+            "valid_http": valid_http,
+            "ssl": ssl,
+            "verbose": verbose,
+            "skip_ping": skip_ping,
+            "no_pass": no_pass,
+        }
+
+        if password:
+            payload["password"] = password
+        if hashes:
+            payload["hashes"] = hashes
+        if ccache:
+            payload["ccache"] = ccache
+        if dns:
+            payload["dns"] = dns
+        if scan_timeout > 0:
+            payload["scan_timeout"] = scan_timeout
+        if scan_threads > 0:
+            payload["scan_threads"] = scan_threads
+        if ports:
+            payload["ports"] = ports
+        if output:
+            payload["output"] = output
+        if additional_args:
+            payload["additional_args"] = additional_args
+
+        logger.info(
+            f"🐾 Starting NetworkHound enumeration for {domain} (DC: {dc}, user: {username})"
+        )
+        result = hexstrike_client.safe_post("api/tools/networkhound", payload)
+        if result.get("success"):
+            logger.info("✅ NetworkHound enumeration completed")
+        else:
+            logger.error("❌ NetworkHound enumeration failed")
         return result
 
     @mcp.tool()
@@ -1399,6 +1795,95 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
             logger.info(f"✅ SMBMap completed for {target}")
         else:
             logger.error(f"❌ SMBMap failed for {target}")
+        return result
+
+    @mcp.tool()
+    def secrets_find0r_scan(
+        cidr: str,
+        username: str = "",
+        password: str = "",
+        nt_hash: str = "",
+        domain: str = "",
+        auth_mode: str = "ntlm",
+        kdc: str = "",
+        include_unknown: bool = False,
+        no_default_keywords: bool = False,
+        keywords: str = "",
+        threads_enum: int = 32,
+        threads_files: int = 8,
+        max_file_bytes: int = 4_194_304,
+        max_unknown_bytes: int = 262_144,
+        max_dir_depth: int = 2,
+        port_probe_timeout: float = 0.5,
+        smb_connect_timeout: float = 5.0,
+        smb_op_timeout: float = 5.0,
+        use_cache: bool = False,
+        additional_args: str = "",
+    ) -> Dict[str, Any]:
+        """
+        Run Secrets Find0r to hunt for leaked credentials on SMB shares.
+
+        Requires the `/opt/secrets_find0r` checkout with the `secrets-env` virtual
+        environment described in the upstream README.
+
+        Args:
+            cidr: CIDR range to enumerate SMB hosts.
+            username: Optional username for authentication.
+            password: Optional password for authentication.
+            nt_hash: Optional NT hash for authenticated scans.
+            domain: Domain/realm for the provided credentials.
+            auth_mode: `ntlm` or `kerberos` (defaults to `ntlm`).
+            kdc: Kerberos KDC / DC FQDN when using Kerberos.
+            include_unknown: Include extensionless files if names look sensitive.
+            no_default_keywords: Disable built-in keyword list.
+            keywords: Comma-separated custom keywords to search for.
+            threads_enum: Thread pool size for host/share enumeration.
+            threads_files: Thread pool size for file scanning.
+            max_file_bytes: Maximum bytes to download for known file types.
+            max_unknown_bytes: Maximum bytes for unknown/no-extension files.
+            max_dir_depth: Recursion depth for directory traversal.
+            port_probe_timeout: Timeout for the initial SMB port probe.
+            smb_connect_timeout: Timeout for SMB connection establishment.
+            smb_op_timeout: Timeout for SMB operations.
+            use_cache: Use existing Kerberos cache (`kinit`) instead of password/hash.
+            additional_args: Raw CLI switches forwarded to Secrets Find0r.
+
+        Returns:
+            Execution metadata and tool output collected from the server.
+        """
+
+        kerberos = auth_mode.lower() == "kerberos"
+
+        data = {
+            "cidr": cidr,
+            "username": username,
+            "password": password,
+            "nt_hash": nt_hash,
+            "domain": domain,
+            "auth_mode": auth_mode.lower(),
+            "kerberos": kerberos,
+            "kdc": kdc,
+            "include_unknown": include_unknown,
+            "no_default_keywords": no_default_keywords,
+            "keywords": keywords,
+            "threads_enum": threads_enum,
+            "threads_files": threads_files,
+            "max_file_bytes": max_file_bytes,
+            "max_unknown_bytes": max_unknown_bytes,
+            "max_dir_depth": max_dir_depth,
+            "port_probe_timeout": port_probe_timeout,
+            "smb_connect_timeout": smb_connect_timeout,
+            "smb_op_timeout": smb_op_timeout,
+            "use_cache": use_cache,
+            "additional_args": additional_args,
+        }
+
+        logger.info(f"🔐 Starting Secrets Find0r scan for {cidr}")
+        result = hexstrike_client.safe_post("api/tools/secrets-find0r", data)
+        if result.get("success"):
+            logger.info("✅ Secrets Find0r scan completed")
+        else:
+            logger.error("❌ Secrets Find0r scan failed")
         return result
 
     # ============================================================================
@@ -2674,29 +3159,38 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
         return result
 
     @mcp.tool()
-    def httpx_probe(target: str, probe: bool = True, tech_detect: bool = False,
-                   status_code: bool = False, content_length: bool = False,
+    def httpx_probe(target: str = "", targets: str = "", target_file: str = "",
+                   probe: bool = True, tech_detect: bool = False,
+                   status_code: Any = False, content_length: bool = False,
                    title: bool = False, web_server: bool = False, threads: int = 50,
+                   ports: str = "", methods: str = "", output_file: str = "",
                    additional_args: str = "") -> Dict[str, Any]:
         """
-        Execute httpx for fast HTTP probing and technology detection.
+        Execute ProjectDiscovery httpx with HexStrike defaults.
 
         Args:
-            target: Target file or single URL
-            probe: Enable probing
-            tech_detect: Enable technology detection
-            status_code: Show status codes
-            content_length: Show content length
-            title: Show page titles
-            web_server: Show web server
-            threads: Number of threads
-            additional_args: Additional httpx arguments
+            target: Single URL or host (newline/comma separated entries allowed)
+            targets: Additional targets (string/list) merged with ``target``
+            target_file: Path to file with one target per line
+            probe: Include ``-probe`` flag for reachability checks
+            tech_detect: Enable technology fingerprinting
+            status_code: ``True`` to display status codes, or string filter (e.g., ``"200"``)
+            content_length: Show response length
+            title: Show HTTP title
+            web_server: Show server header
+            threads: Number of concurrent workers
+            ports: Optional ``-p`` definition (e.g., ``"80,443"``)
+            methods: Override request methods (maps to ``-x``)
+            output_file: Persist raw httpx output via ``-o``
+            additional_args: Extra CLI arguments passed verbatim
 
         Returns:
-            Fast HTTP probing results with technology detection
+            httpx execution result payload
         """
         data = {
             "target": target,
+            "targets": targets,
+            "target_file": target_file,
             "probe": probe,
             "tech_detect": tech_detect,
             "status_code": status_code,
@@ -2704,14 +3198,19 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
             "title": title,
             "web_server": web_server,
             "threads": threads,
-            "additional_args": additional_args
+            "ports": ports,
+            "methods": methods,
+            "output_file": output_file,
+            "additional_args": additional_args,
         }
-        logger.info(f"🌍 Starting httpx probe: {target}")
+
+        display_target = target_file or target or targets
+        logger.info(f"🌍 Starting httpx probe: {display_target}")
         result = hexstrike_client.safe_post("api/tools/httpx", data)
         if result.get("success"):
-            logger.info(f"✅ httpx probe completed for {target}")
+            logger.info(f"✅ httpx probe completed for {display_target}")
         else:
-            logger.error(f"❌ httpx probe failed for {target}")
+            logger.error(f"❌ httpx probe failed for {display_target}")
         return result
 
     @mcp.tool()
@@ -3387,42 +3886,6 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
             logger.info(f"✅ Hakrawler crawling completed")
         else:
             logger.error(f"❌ Hakrawler crawling failed")
-        return result
-
-    @mcp.tool()
-    def httpx_probe(targets: str = "", target_file: str = "", ports: str = "", methods: str = "GET", status_code: str = "", content_length: bool = False, output_file: str = "", additional_args: str = "") -> Dict[str, Any]:
-        """
-        Execute HTTPx for HTTP probing with enhanced logging.
-
-        Args:
-            targets: Target URLs or IPs
-            target_file: File containing targets
-            ports: Ports to probe
-            methods: HTTP methods to use
-            status_code: Filter by status code
-            content_length: Show content length
-            output_file: Output file path
-            additional_args: Additional HTTPx arguments
-
-        Returns:
-            HTTP probing results
-        """
-        data = {
-            "targets": targets,
-            "target_file": target_file,
-            "ports": ports,
-            "methods": methods,
-            "status_code": status_code,
-            "content_length": content_length,
-            "output_file": output_file,
-            "additional_args": additional_args
-        }
-        logger.info(f"🌐 Starting HTTPx probing")
-        result = hexstrike_client.safe_post("api/tools/httpx", data)
-        if result.get("success"):
-            logger.info(f"✅ HTTPx probing completed")
-        else:
-            logger.error(f"❌ HTTPx probing failed")
         return result
 
     @mcp.tool()
@@ -6051,6 +6514,41 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
 
         return result
 
+    def _parse_prime_list(prime_csv: str) -> Optional[List[int]]:
+        if not prime_csv:
+            return None
+        primes: List[int] = []
+        for chunk in prime_csv.split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            try:
+                primes.append(int(chunk, 0))
+            except ValueError:
+                raise ValueError(f"Prime invalido: {chunk}")
+        return primes or None
+
+    def _extract_pointer_observations(observations_payload: Any) -> List[Tuple[int, int, int]]:
+        if isinstance(observations_payload, dict):
+            observations_payload = observations_payload.get("observations", [])
+        if not isinstance(observations_payload, list):
+            raise ValueError("Observacoes devem ser lista de objetos")
+
+        parsed: List[Tuple[int, int, int]] = []
+        for item in observations_payload:
+            if not isinstance(item, dict):
+                raise ValueError("Cada observacao deve ser um objeto com prime, even_position e odd_position")
+            try:
+                prime = int(item["prime"], 0) if isinstance(item.get("prime"), str) else int(item.get("prime"))
+                even_pos = int(item.get("even_position"))
+                odd_pos = int(item.get("odd_position"))
+            except (KeyError, TypeError, ValueError):
+                raise ValueError("Observacao invalida - campos prime/even_position/odd_position obrigatorios")
+            parsed.append((prime, even_pos, odd_pos))
+        if not parsed:
+            raise ValueError("Nenhuma observacao fornecida")
+        return parsed
+
     @mcp.tool()
     def multi_exploit_workflow(
         target: str,
@@ -6111,6 +6609,72 @@ def setup_mcp_server(hexstrike_client: HexStrikeClient) -> FastMCP:
             logger.error(f"❌ Multi-exploit workflow failed for {target}")
 
         return result
+
+    # ========================================================================
+    # ADVANCED POINTER LEAK & SERIALIZATION DEFENSE MODULES
+    # ========================================================================
+
+    @mcp.tool()
+    def pointer_leak_campaign(primes: str = "") -> Dict[str, Any]:
+        """Gerar plano de ataque estilo Project Zero para vazamento de ponteiros."""
+
+        try:
+            prime_list = _parse_prime_list(primes)
+            plan = plan_pointer_leak_campaign(prime_list)
+        except ValueError as exc:
+            logger.error(f"❌ Erro ao processar lista de primos: {exc}")
+            return {"success": False, "error": str(exc)}
+
+        logger.info("🔮 PointerLeak: plano de padroes gerado com sucesso")
+        return {"success": True, "plan": plan}
+
+    @mcp.tool()
+    def pointer_leak_decode(observations: str, primes: str = "") -> Dict[str, Any]:
+        """Decodificar posicoes de NSNull e aplicar CRT para vazar endereco."""
+
+        try:
+            observations_payload = json.loads(observations)
+            parsed_observations = _extract_pointer_observations(observations_payload)
+            prime_list = _parse_prime_list(primes)
+            pattern_data = build_pointer_leak_patterns(prime_list)
+            decoder_map = {
+                item["prime"]: item["residue_decoder"]
+                for item in pattern_data["patterns"]
+                if item["pattern"] == "even"
+            }
+            residues = decode_residues(parsed_observations, decoder_map)
+            crt = chinese_remainder_solver(residues)
+        except ValueError as exc:
+            logger.error(f"❌ PointerLeak decode falhou: {exc}")
+            return {"success": False, "error": str(exc)}
+        except json.JSONDecodeError as exc:
+            logger.error(f"❌ JSON invalido para observacoes: {exc}")
+            return {"success": False, "error": f"JSON invalido: {exc}"}
+
+        logger.info("🧮 PointerLeak: residuos decodificados e CRT aplicado")
+        return {
+            "success": True,
+            "residues": residues,
+            "solution": crt,
+        }
+
+    @mcp.tool()
+    def pickle_guard_audit(path: str = ".") -> Dict[str, Any]:
+        """Executa varredura por desserializacao insegura em bases Python."""
+
+        try:
+            result = pickle_guard_scan(path)
+        except ValueError as exc:
+            logger.error(f"❌ PickleGuard falhou: {exc}")
+            return {"success": False, "error": str(exc)}
+
+        issues = result.get("issues", [])
+        if issues:
+            logger.warning(f"⚠️ PickleGuard identificou {len(issues)} achados")
+        else:
+            logger.info("✅ PickleGuard: nenhuma desserializacao insegura detectada")
+
+        return {"success": True, "report": result}
 
     return mcp
 

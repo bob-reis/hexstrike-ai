@@ -7,7 +7,19 @@
         "--server",
         "http://IPADDRESS:8888"
       ],
-      "description": "HexStrike AI v6.0 - Advanced Cybersecurity Automation Platform. Turn off alwaysAllow if you dont want autonomous execution!",
+      "description": "HexStrike AI v6.0 - Advanced Cybersecurity Automation Platform with BOAZ payload evasion",
+      "timeout": 300,
+      "alwaysAllow": []
+    },
+    "boaz-mcp": {
+      "command": "python3",
+      "args": [
+        "/path/to/BOAZ-MCP/boaz_mcp_server.py"
+      ],
+      "env": {
+        "BOAZ_PATH": "/path/to/BOAZ-MCP/BOAZ_beta"
+      },
+      "description": "BOAZ MCP - Loader catalogue, payload generation, and entropy analysis",
       "timeout": 300,
       "alwaysAllow": []
     }

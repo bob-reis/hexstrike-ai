@@ -1,0 +1,21 @@
+#!/bin/bash
+echo "Starting Nmap (mock)"
+echo "Command: nmap $@"
+if [[ "$@" == *"192.168.2.0/24"* ]]; then
+  echo "Nmap scan report for 192.168.2.15"
+  echo "Host is up (0.0010s latency)."
+  echo "Not shown: 997 closed tcp ports"
+  echo "PORT    STATE SERVICE"
+  echo "22/tcp  open  ssh"
+  echo "80/tcp  open  http"
+  echo "445/tcp open  microsoft-ds"
+fi
+if [[ "$@" == *"10.152.0.0/16"* ]]; then
+  echo "Nmap scan report for 10.152.4.20"
+  echo "Host is up (0.0020s latency)."
+  echo "PORT      STATE    SERVICE"
+  echo "102/tcp   open     iso-tsap"
+  echo "20000/tcp open     dnp3"
+  echo "44818/tcp open     ether-net-ip"
+fi
+exit 0
