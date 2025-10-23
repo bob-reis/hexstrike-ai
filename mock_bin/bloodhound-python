@@ -1,0 +1,20 @@
+#!/bin/bash
+args=("$@")
+outdir=""
+i=0
+while [[ $i -lt ${#args[@]} ]]; do
+  arg=${args[$i]}
+  if [[ "$arg" == "-o" ]]; then
+    next_index=$((i+1))
+    if [[ $next_index -lt ${#args[@]} ]]; then
+      outdir=${args[$next_index]}
+    fi
+  fi
+  ((i++))
+done
+if [[ -n "$outdir" ]]; then
+  mkdir -p "$outdir"
+  echo '{"mock": "bloodhound data"}' > "$outdir/bloodhound_mock.json"
+fi
+echo "[mock bloodhound-python] $@"
+exit 0

@@ -1,0 +1,19 @@
+#!/bin/bash
+subcommand=$1
+shift
+echo "SMB mock output"
+echo "Command: crackmapexec $subcommand $@"
+if [[ "$@" == *"--pass-pol"* ]]; then
+  echo "Password Policy for domain MOCK"
+  echo "\tMinimum password length: 12"
+  echo "\tPassword history length: 24"
+fi
+if [[ "$subcommand" == "lsa" ]]; then
+  echo "Dumping LSA secrets (mock)"
+  echo "\tMOCK\\svc-backup : Plaintext Password : StrongPass!"
+fi
+if [[ "$@" == *"--sessions"* ]]; then
+  echo "Enumerating sessions (mock)"
+  echo "\\\MOCK-SRV01 -> 2 sessions"
+fi
+exit 0

@@ -104,7 +104,8 @@ graph TD
 2. **Intelligent Analysis** - Decision engine analyzes targets and selects optimal testing strategies
 3. **Autonomous Execution** - AI agents execute comprehensive security assessments
 4. **Real-time Adaptation** - System adapts based on results and discovered vulnerabilities
-5. **Advanced Reporting** - Visual output with vulnerability cards and risk analysis
+5. **BOAZ Payload Evasion** - Optional integration with 77+ loaders and 12 encoders for red team payload hardening
+6. **Advanced Reporting** - Visual output with vulnerability cards and risk analysis
 
 ---
 
@@ -124,8 +125,16 @@ source hexstrike-env/bin/activate  # Linux/Mac
 
 # 3. Install Python dependencies
 pip3 install -r requirements.txt
+# 4. (Optional) Install BOAZ prerequisites for payload evasion
+cd BOAZ_beta
+bash requirements.sh
+cd ..
 
 ```
+
+> **BOAZ prerequisites:** Only required if you intend to use the payload evasion tools.
+> The script installs MinGW, NASM, LLVM obfuscators (Akira/Pluto), and other build dependencies.
+> Expect 20–30 minutes on first run.
 
 ### Installation and Setting Up Guide for various AI Clients:
 
@@ -230,6 +239,18 @@ Edit `~/.config/Claude/claude_desktop_config.json`:
       "description": "HexStrike AI v6.0 - Advanced Cybersecurity Automation Platform",
       "timeout": 300,
       "disabled": false
+    },
+    "boaz-mcp": {
+      "command": "python3",
+      "args": [
+        "/path/to/BOAZ-MCP/boaz_mcp_server.py"
+      ],
+      "env": {
+        "BOAZ_PATH": "/path/to/BOAZ-MCP/BOAZ_beta"
+      },
+      "description": "BOAZ MCP - Payload evasion and loader orchestration",
+      "timeout": 300,
+      "disabled": false
     }
   }
 }
@@ -258,6 +279,18 @@ Configure VS Code settings in `.vscode/settings.json`:
 ---
 
 ## Features
+
+### BOAZ Payload Evasion Suite
+
+<p align="center">
+  <img src="assets/Hex-Boaz.png" alt="HexStrike + BOAZ" width="320"/>
+</p>
+
+- **Full BOAZ integration** with 77+ process injection loaders and 12 encoders directly accessible via MCP tools
+- **Payload hardening workflow** that keeps inputs within `BOAZ_beta/` for safer handling and reproducibility
+- **Entropy analysis & validation** to tune builds before shipping them to operations teams
+- **FastMCP client tools** (`boaz_generate_payload`, `boaz_list_loaders`, `boaz_list_encoders`, `boaz_analyze_binary`, `boaz_validate_options`)
+- **Server-side safeguards** preventing path traversal, oversized files, and unsafe parameter injections
 
 ### Security Tools Arsenal
 
