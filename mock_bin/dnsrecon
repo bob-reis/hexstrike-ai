@@ -1,0 +1,6 @@
+#!/bin/bash
+echo "[*] dnsrecon mock run"
+echo "[*] performing enumeration for domain inco.local"
+echo "[+] A inco.local -> 192.168.1.10"
+echo "[+] SRV _ldap._tcp.inco.local -> dc.inco.local"
+exit 0

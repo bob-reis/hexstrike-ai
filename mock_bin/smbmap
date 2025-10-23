@@ -1,0 +1,6 @@
+#!/bin/bash
+echo "[mock smbmap] $@"
+echo "Disk\tPermissions\tComment"
+echo "IPC$\tREAD\tRemote IPC"
+echo "HR\tREAD,WRITE\tHuman Resources"
+exit 0

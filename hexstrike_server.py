@@ -36,9 +36,10 @@ import base64
 import queue
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from collections import OrderedDict
 import shutil
+import tempfile
 import venv
 import zipfile
 from pathlib import Path
@@ -53,92 +54,76 @@ import platform
 from dataclasses import dataclass, field
 from enum import Enum
 
-# Tool executable mappings for /opt tools with virtual environments
-TOOL_EXECUTABLES = {
-    "docker-bench-security": "cd /opt/docker-bench-security && ./docker-bench-security.sh",
-    "kube-hunter": "/opt/kube-hunter/venv/bin/python /opt/kube-hunter/kube-hunter.py",
-    "kube-hunter-venv": "/opt/kube-hunter/venv/bin/python /opt/kube-hunter/kube-hunter.py",
-    "prowler": "/opt/prowler/prowlwer-venv/bin/prowler",
-    "prowler-alt": "python3 /opt/prowler/prowler.py",
-    "ScoutSuite": "/opt/ScoutSuite/venv/bin/python /opt/ScoutSuite/scout.py",
-    "scout-suite": "/opt/ScoutSuite/venv/bin/python /opt/ScoutSuite/scout.py",
-    "volatility3": "/opt/volatility3/volatility-env/bin/python /opt/volatility3/vol.py",
-    "vol.py": "/opt/volatility3/volatility-env/bin/python /opt/volatility3/vol.py",
-    "vol": "/opt/volatility3/volatility-env/bin/python /opt/volatility3/vol.py",
-    "enumdns": "/usr/bin/enumdns",
-    "stegsolve": "java -jar /opt/stegsolve/StegSolve.jar",
-}
+from tool_resolver import (
+    TOOL_EXECUTABLES,
+    TOOL_ALIASES,
+    TOOL_INSTALLATION_HINTS,
+    resolve_tool_command,
+)
+from boaz import BOAZManager
 
-# Alternate executable names used by select tools (case sensitivity, wrappers, etc.)
-TOOL_ALIASES = {
-    "ropgadget": ["ROPgadget"],
-    "pwntools": ["pwn"],
-    "one-gadget": ["one_gadget"],
-    "volatility3": ["vol.py"],
-    "vol": ["vol.py", "volatility3"],
-    "bulk-extractor": ["bulk_extractor"],
-    "shodancli": ["shodan-cli"],
-    "metasploit": ["msfconsole", "msfvenom"],
-}
+_HTTPX_BINARY_CACHE: Optional[str] = None
+
+
+def _is_projectdiscovery_httpx(binary: str) -> bool:
+    """Return True if the binary appears to be the ProjectDiscovery httpx CLI."""
+    try:
+        completed = subprocess.run(
+            [binary, "-h"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except Exception:
+        return False
+
+    signature = (completed.stdout + completed.stderr).lower()
+    return "multi-purpose http toolkit" in signature or "projectdiscovery" in signature
+
+
+def resolve_httpx_binary() -> str:
+    """Locate a ProjectDiscovery httpx binary, honoring overrides when provided."""
+    global _HTTPX_BINARY_CACHE
+
+    if _HTTPX_BINARY_CACHE:
+        return _HTTPX_BINARY_CACHE
+
+    candidates = []
+    override = os.getenv("HEXSTRIKE_HTTPX")
+    if override:
+        candidates.append(override)
+
+    candidates.extend(
+        [
+            "projectdiscovery-httpx",
+            "pd-httpx",
+            "/usr/bin/httpx",
+            "httpx",
+        ]
+    )
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+
+        if os.path.isabs(candidate):
+            path = candidate if Path(candidate).exists() else None
+        else:
+            path = shutil.which(candidate)
+
+        if not path:
+            continue
+
+        if _is_projectdiscovery_httpx(path):
+            _HTTPX_BINARY_CACHE = path
+            return path
+
+    fallback = shutil.which("httpx") or "httpx"
+    _HTTPX_BINARY_CACHE = fallback
+    return fallback
 
 # Tool presence hints for suites that install without a single executable name
-TOOL_INSTALLATION_HINTS = {
-    "hashcat-utils": [
-        Path("/usr/lib/hashcat-utils"),
-        Path("/usr/share/hashcat-utils"),
-        Path("/usr/lib/hashcat-utils/cap2hccapx.bin"),
-    ],
-    "pwntools": [
-        Path("/usr/bin/pwn"),
-        Path.home() / ".local" / "bin" / "pwn",
-    ],
-    "one-gadget": [
-        Path("/usr/local/bin/one_gadget"),
-        Path("/usr/bin/one_gadget"),
-        Path.home() / ".local" / "bin" / "one_gadget",
-    ],
-    "libc-database": [
-        Path("/opt/libc-database"),
-        Path.home() / "libc-database",
-        Path("/usr/share/libc-database"),
-    ],
-    "prowler": [
-        Path("/opt/prowler"),
-        Path("/opt/prowler/prowler.py"),
-        Path("/opt/prowler/prowlwer-venv"),
-    ],
-    "scout-suite": [
-        Path("/opt/ScoutSuite"),
-        Path("/opt/ScoutSuite/venv"),
-        Path("/opt/ScoutSuite/scout.py"),
-    ],
-    "kube-hunter": [
-        Path("/opt/kube-hunter"),
-        Path("/opt/kube-hunter/venv"),
-        Path("/opt/kube-hunter/kube-hunter.py"),
-    ],
-    "volatility3": [
-        Path("/opt/volatility3/vol.py"),
-        Path("/opt/volatility3/volatility-env"),
-    ],
-    "vol": [
-        Path("/opt/volatility3/vol.py"),
-        Path("/opt/volatility3/volatility-env"),
-    ],
-    "bulk-extractor": [
-        Path("/usr/bin/bulk_extractor"),
-        Path("/usr/local/bin/bulk_extractor"),
-    ],
-    "stegsolve": [
-        Path("/opt/stegsolve/StegSolve.jar"),
-        Path("/opt/stegsolve/stegsolve.jar"),
-        Path("/tmp/stegsolve/StegSolve.jar"),
-        Path("/tmp/stegsolve/stegsolve.jar"),
-        Path("/opt/stegsolve/stegsolve"),
-        Path("/opt/stegsolve"),
-    ],
-}
-
 JS_ANALYSIS_ROOT = Path("/opt/JS-Analysis/automation")
 JS_DISCOVERY_SCRIPT = JS_ANALYSIS_ROOT / "js-discovery/js_discovery.py"
 PARAM_HUNTER_SCRIPT = JS_ANALYSIS_ROOT / "param-hunter/param_hunter.py"
@@ -160,39 +145,6 @@ import mitmproxy
 from mitmproxy import http as mitmhttp
 from mitmproxy.tools.dump import DumpMaster
 from mitmproxy.options import Options as MitmOptions
-
-# ============================================================================
-# TOOL PATH RESOLUTION UTILITIES
-# ============================================================================
-
-def resolve_tool_command(tool_name: str, base_command: str) -> str:
-    """
-    Resolve tool command to use proper virtual environment paths for /opt tools
-
-    Args:
-        tool_name: Name of the tool
-        base_command: Original command
-
-    Returns:
-        Resolved command with proper paths
-    """
-    # Check if it's one of our mapped tools
-    if tool_name in TOOL_EXECUTABLES:
-        resolved_command = TOOL_EXECUTABLES[tool_name]
-        print(f"🔧 Resolved {tool_name} to: {resolved_command}")
-        return resolved_command
-
-    # Check if base_command starts with any of our tool names
-    for tool, executable in TOOL_EXECUTABLES.items():
-        if base_command.startswith(tool):
-            # Replace the tool name with the full executable path
-            resolved = base_command.replace(tool, executable, 1)
-            print(f"🔧 Resolved command from '{base_command}' to: {resolved}")
-            return resolved
-
-    # Return original command if no mapping found
-    return base_command
-
 
 def build_python_command(script_path: Path, args: List[str], workdir: Path = None) -> str:
     """Compose a shell command to run a Python script with arguments."""
@@ -1010,6 +962,7 @@ class IntelligentDecisionEngine:
                 "responder": 0.88,  # Excellent for credential harvesting
                 "hydra": 0.8,
                 "netexec": 0.85,
+                "networkhound": 0.9,
                 "amass": 0.7
             },
             TargetType.API_ENDPOINT.value: {
@@ -1112,9 +1065,10 @@ class IntelligentDecisionEngine:
                 {"tool": "nmap-advanced", "priority": 3, "params": {"scan_type": "-sS", "os_detection": True, "version_detection": True}},
                 {"tool": "masscan", "priority": 4, "params": {"rate": 1000, "ports": "1-65535", "banners": True}},
                 {"tool": "enum4linux-ng", "priority": 5, "params": {"shares": True, "users": True, "groups": True}},
-                {"tool": "nbtscan", "priority": 6, "params": {"verbose": True}},
-                {"tool": "smbmap", "priority": 7, "params": {"recursive": True}},
-                {"tool": "rpcclient", "priority": 8, "params": {"commands": "enumdomusers;enumdomgroups;querydominfo"}}
+                {"tool": "networkhound", "priority": 6, "params": {"port_scan": True, "valid_smb": True, "valid_http": True, "shadow_it": True}},
+                {"tool": "nbtscan", "priority": 7, "params": {"verbose": True}},
+                {"tool": "smbmap", "priority": 8, "params": {"recursive": True}},
+                {"tool": "rpcclient", "priority": 9, "params": {"commands": "enumdomusers;enumdomgroups;querydominfo"}}
             ],
             "vulnerability_assessment": [
                 {"tool": "nuclei", "priority": 1, "params": {"severity": "critical,high,medium", "update": True}},
@@ -1128,7 +1082,8 @@ class IntelligentDecisionEngine:
                 {"tool": "rustscan", "priority": 2, "params": {"ulimit": 5000, "scripts": True}},
                 {"tool": "nmap-advanced", "priority": 3, "params": {"aggressive": True, "nse_scripts": "vuln,exploit"}},
                 {"tool": "enum4linux-ng", "priority": 4, "params": {"shares": True, "users": True, "groups": True, "policy": True}},
-                {"tool": "responder", "priority": 5, "params": {"wpad": True, "duration": 180}}
+                {"tool": "networkhound", "priority": 5, "params": {"port_scan": True, "valid_smb": True, "ssl": True}},
+                {"tool": "responder", "priority": 6, "params": {"wpad": True, "duration": 180}}
             ],
             "binary_exploitation": [
                 {"tool": "checksec", "priority": 1, "params": {}},
@@ -2911,7 +2866,7 @@ class BugBountyWorkflowManager:
             "ssrf": {"priority": 8, "tools": ["nuclei", "ffuf"], "payloads": "ssrf"},
             "idor": {"priority": 8, "tools": ["arjun", "paramspider", "ffuf"], "payloads": "idor"},
             "xss": {"priority": 7, "tools": ["dalfox", "nuclei"], "payloads": "xss"},
-            "lfi": {"priority": 7, "tools": ["ffuf", "nuclei"], "payloads": "lfi"},
+            "lfi": {"priority": 7, "tools": ["lfi-hunter", "ffuf", "nuclei"], "payloads": "lfi"},
             "xxe": {"priority": 6, "tools": ["nuclei"], "payloads": "xxe"},
             "csrf": {"priority": 5, "tools": ["nuclei"], "payloads": "csrf"}
         }
@@ -11285,6 +11240,7 @@ class VulnerabilityCorrelator:
 cve_intelligence = CVEIntelligenceManager()
 exploit_generator = AIExploitGenerator()
 vulnerability_correlator = VulnerabilityCorrelator()
+boaz_manager = BOAZManager()
 
 def execute_command(command: str, use_cache: bool = True) -> Dict[str, Any]:
     """
@@ -11683,7 +11639,7 @@ def health_check():
 
     network_tools = [
         "rustscan", "masscan", "autorecon", "nbtscan", "arp-scan", "responder",
-        "nxc", "enum4linux-ng", "rpcclient", "enum4linux"
+        "nxc", "enum4linux-ng", "rpcclient", "enum4linux", "networkhound"
     ]
 
     web_security_tools = [
@@ -12631,9 +12587,13 @@ def execute_katana_scan(target, params):
 def execute_httpx_scan(target, params):
     """Execute httpx scan with optimized parameters"""
     try:
-        additional_args = params.get('additional_args', '-tech-detect -status-code')
-        # Use shell command with pipe for httpx
-        cmd = f"echo {target} | httpx {additional_args}"
+        additional_args = params.get('additional_args', '-tech-detect -status-code').strip()
+        if not additional_args:
+            additional_args = '-tech-detect -status-code'
+
+        httpx_binary = resolve_httpx_binary()
+        # Use printf for predictable newline escaping
+        cmd = f"printf '%s\\n' {shlex.quote(str(target))} | {shlex.quote(httpx_binary)} {additional_args}"
 
         return execute_command(cmd)
     except Exception as e:
@@ -13977,6 +13937,162 @@ def ffuf():
             "error": f"Server error: {str(e)}"
         }), 500
 
+
+@app.route("/api/tools/lfi-hunter", methods=["POST"])
+def lfi_hunter():
+    """Execute LFI Hunter for Local File Inclusion assessments."""
+    try:
+        params = request.json or {}
+
+        target_url = (
+            params.get("target_url")
+            or params.get("vuln_url")
+            or params.get("url")
+        )
+        if not target_url:
+            logger.warning("📝 LFI Hunter called without target_url parameter")
+            return jsonify({"error": "target_url parameter is required"}), 400
+
+        base_command = "lfi-hunter"
+        command = resolve_tool_command("lfi-hunter", base_command)
+
+        if command == base_command:
+            venv_python = Path("/opt/LFI_Hunter/lfi-hunter-venv/bin/python")
+            if not venv_python.exists():
+                venv_python = Path("/opt/LFI_Hunter/lfi-hunter-env/bin/python")
+
+            if not venv_python.exists():
+                logger.error("❌ LFI Hunter virtual environment not found under /opt/LFI_Hunter")
+                return jsonify({
+                    "error": "LFI Hunter environment is not available on this host"
+                }), 500
+
+            command = (
+                f"cd /opt/LFI_Hunter && {venv_python} /opt/LFI_Hunter/LFI_Hunter.py"
+            )
+
+        command += f" -UV {shlex.quote(target_url)}"
+
+        filelist = params.get("wordlist") or params.get("filelist")
+        if filelist:
+            command += f" -F {shlex.quote(filelist)}"
+
+        cookie_file = params.get("cookie_file") or params.get("cookie")
+        if cookie_file:
+            command += f" -C {shlex.quote(cookie_file)}"
+
+        login_url = params.get("login_url")
+        if login_url:
+            command += f" -LU {shlex.quote(login_url)}"
+
+        read_file = params.get("read_file")
+        if read_file:
+            command += f" -R {shlex.quote(read_file)}"
+
+        config_path = params.get("config_file")
+        if config_path:
+            command += f" --config {shlex.quote(config_path)}"
+
+        username = params.get("username")
+        if username:
+            command += f" -U {shlex.quote(username)}"
+
+        password = params.get("password")
+        if password:
+            command += f" -P {shlex.quote(password)}"
+
+        readuser_file = params.get("readuser_file")
+        if readuser_file:
+            command += f" -u {shlex.quote(readuser_file)}"
+
+        readpass_file = params.get("readpass_file")
+        if readpass_file:
+            command += f" -p {shlex.quote(readpass_file)}"
+
+        user_form = params.get("user_form")
+        if user_form:
+            command += f" -UF {shlex.quote(user_form)}"
+
+        pass_form = params.get("pass_form")
+        if pass_form:
+            command += f" -PF {shlex.quote(pass_form)}"
+
+        parameter_template = params.get("parameter_template")
+        if parameter_template:
+            command += f" -FP {shlex.quote(parameter_template)}"
+
+        params_wordlist = params.get("params_wordlist")
+        if params_wordlist:
+            command += f" -PL {shlex.quote(params_wordlist)}"
+
+        status_filter = params.get("status_filter")
+        if status_filter:
+            command += f" -s {shlex.quote(str(status_filter))}"
+
+        reverse_shell_ip = params.get("reverse_shell_ip")
+        if reverse_shell_ip:
+            command += f" -S {shlex.quote(reverse_shell_ip)}"
+
+        port = params.get("port") or params.get("reverse_shell_port")
+        if port:
+            command += f" --port {shlex.quote(str(port))}"
+
+        auth_enabled = params.get("auth")
+        if isinstance(auth_enabled, str):
+            auth_enabled = auth_enabled.lower() in {"1", "true", "yes"}
+        if auth_enabled:
+            command += " --auth"
+
+        aggressive_mode = params.get("aggressive")
+        if isinstance(aggressive_mode, str):
+            aggressive_mode = aggressive_mode.lower() in {"1", "true", "yes"}
+        if aggressive_mode:
+            command += " -A"
+
+        base64_decode = params.get("base64_decode")
+        if isinstance(base64_decode, str):
+            base64_decode = base64_decode.lower() in {"1", "true", "yes"}
+        if base64_decode:
+            command += " -B"
+
+        fuzzing_enabled = params.get("fuzzing")
+        if isinstance(fuzzing_enabled, str):
+            fuzzing_enabled = fuzzing_enabled.lower() in {"1", "true", "yes"}
+        if fuzzing_enabled:
+            command += " -Z"
+
+        webshell_flag = params.get("webshell")
+        if isinstance(webshell_flag, str):
+            webshell_flag = webshell_flag.lower() in {"1", "true", "yes"}
+        if webshell_flag:
+            command += " --webshell"
+
+        additional_args = params.get("additional_args", "")
+        if additional_args:
+            command += f" {additional_args}"
+
+        logger.info(f"🪓 Starting LFI Hunter scan against {target_url}")
+
+        tool_params = {
+            "target_url": target_url,
+            "has_auth": bool(auth_enabled),
+            "aggressive": bool(aggressive_mode),
+            "fuzzing": bool(fuzzing_enabled),
+            "reverse_shell_ip": reverse_shell_ip,
+        }
+
+        result = execute_command_with_recovery(
+            "lfi-hunter",
+            command,
+            tool_params,
+        )
+
+        logger.info("📊 LFI Hunter execution completed")
+        return jsonify(result)
+    except Exception as exc:
+        logger.error(f"💥 Error in lfi-hunter endpoint: {exc}")
+        return jsonify({"error": f"Server error: {exc}"}), 500
+
 @app.route("/api/tools/netexec", methods=["POST"])
 def netexec():
     """Execute NetExec (formerly CrackMapExec) with enhanced logging"""
@@ -14021,6 +14137,181 @@ def netexec():
         logger.error(f"💥 Error in netexec endpoint: {str(e)}")
         return jsonify({
             "error": f"Server error: {str(e)}"
+        }), 500
+
+@app.route("/api/tools/networkhound", methods=["POST"])
+def networkhound():
+    """Execute NetworkHound for Active Directory network topology analysis with enhanced logging."""
+    try:
+        params = request.json or {}
+
+        dc = str(params.get("dc", "") or "").strip()
+        domain = str(params.get("domain", "") or "").strip()
+        username = str(params.get("username", "") or "").strip()
+        password = str(params.get("password", "") or "").strip()
+        hashes = str(params.get("hashes", "") or "").strip()
+        ccache = str(params.get("ccache", "") or "").strip()
+        additional_args = str(params.get("additional_args", "") or "").strip()
+
+        def to_bool(value, default=False):
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                lowered = value.strip().lower()
+                if lowered in {"true", "1", "yes", "on"}:
+                    return True
+                if lowered in {"false", "0", "no", "off"}:
+                    return False
+                return default
+            if isinstance(value, (int, float)):
+                return value != 0
+            return default
+
+        def to_int(value):
+            try:
+                if value is None or value == "":
+                    return None
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        kerberos_enabled = to_bool(params.get("kerberos", False))
+        no_pass_flag = to_bool(params.get("no_pass", False))
+        dns_server = str(params.get("dns", "") or "").strip()
+        dns_tcp = to_bool(params.get("dns_tcp", False))
+        port_scan = to_bool(params.get("port_scan", False))
+        shadow_it = to_bool(params.get("shadow_it", False))
+        valid_smb = to_bool(params.get("valid_smb", False))
+        valid_http = to_bool(params.get("valid_http", False))
+        ssl_flag = to_bool(params.get("ssl", False))
+        verbose_flag = to_bool(params.get("verbose", False))
+        skip_ping = to_bool(params.get("skip_ping", False))
+        scan_timeout = to_int(params.get("scan_timeout"))
+        scan_threads = to_int(params.get("scan_threads"))
+        ports = str(params.get("ports", "") or "").strip()
+        output_path = str(params.get("output", "") or "").strip()
+
+        if not dc or not domain or not username:
+            logger.warning("🐾 NetworkHound called without required parameters (dc, domain, username)")
+            return jsonify({
+                "error": "Parameters 'dc', 'domain', and 'username' are required"
+            }), 400
+
+        if not (password or hashes or kerberos_enabled or no_pass_flag or "--no-pass" in additional_args):
+            logger.warning("🐾 NetworkHound missing authentication method (password/hash/kerberos/no-pass)")
+            return jsonify({
+                "error": "Provide 'password', 'hashes', enable 'kerberos', or specify 'no_pass' to authenticate"
+            }), 400
+
+        command_parts = [resolve_tool_command("networkhound", "networkhound")]
+
+        command_parts.append(f"--dc {shlex.quote(dc)}")
+        command_parts.append(f"-d {shlex.quote(domain)}")
+        command_parts.append(f"-u {shlex.quote(username)}")
+
+        if password:
+            command_parts.append(f"-p {shlex.quote(password)}")
+
+        if hashes:
+            command_parts.append(f"--hashes {shlex.quote(hashes)}")
+
+        if kerberos_enabled:
+            command_parts.append("--kerberos")
+
+        if no_pass_flag and "--no-pass" not in command_parts:
+            command_parts.append("--no-pass")
+
+        if dns_server:
+            command_parts.append(f"--dns {shlex.quote(dns_server)}")
+
+        if dns_tcp:
+            command_parts.append("--dns-tcp")
+
+        if port_scan:
+            command_parts.append("--port-scan")
+
+        if ports:
+            command_parts.append(f"--ports {shlex.quote(ports)}")
+
+        if scan_timeout is not None:
+            command_parts.append(f"--scan-timeout {scan_timeout}")
+
+        if scan_threads is not None:
+            command_parts.append(f"--scan-threads {scan_threads}")
+
+        if valid_smb:
+            command_parts.append("--valid-smb")
+
+        if valid_http:
+            command_parts.append("--valid-http")
+
+        if ssl_flag:
+            command_parts.append("--ssl")
+
+        if shadow_it:
+            command_parts.append("--shadow-it")
+
+        if verbose_flag:
+            command_parts.append("--verbose")
+
+        if skip_ping:
+            command_parts.append("-Pn")
+
+        if output_path:
+            command_parts.append(f"-o {shlex.quote(output_path)}")
+
+        if additional_args:
+            command_parts.append(additional_args)
+
+        command = " ".join(command_parts)
+
+        if ccache:
+            command = f"KRB5CCNAME={shlex.quote(ccache)} {command}"
+
+        logger.info(
+            f"🐾 Starting NetworkHound enumeration for domain {domain} via DC {dc}"
+        )
+
+        tool_params = {
+            "dc": dc,
+            "domain": domain,
+            "username": username,
+            "kerberos": kerberos_enabled,
+            "port_scan": port_scan,
+            "shadow_it": shadow_it,
+            "valid_smb": valid_smb,
+            "valid_http": valid_http,
+            "ssl": ssl_flag,
+            "dns": dns_server,
+            "dns_tcp": dns_tcp,
+            "scan_threads": scan_threads,
+            "scan_timeout": scan_timeout,
+            "ports": ports,
+            "output": output_path,
+            "hashes_provided": bool(hashes),
+            "password_provided": bool(password),
+            "no_pass": no_pass_flag,
+        }
+
+        result = execute_command_with_recovery(
+            "networkhound",
+            command,
+            tool_params,
+            use_cache=False,
+            max_attempts=2,
+        )
+
+        if result.get("success"):
+            logger.info("✅ NetworkHound enumeration completed successfully")
+        else:
+            logger.error("❌ NetworkHound enumeration failed")
+
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"💥 Error in networkhound endpoint: {str(e)}")
+        return jsonify({
+            "error": f"Server error: {str(e)}",
+            "success": False
         }), 500
 
 @app.route("/api/intelligence/credential-dump", methods=["POST"])
@@ -14276,6 +14567,83 @@ def smbmap():
         return jsonify(result)
     except Exception as e:
         logger.error(f"💥 Error in smbmap endpoint: {str(e)}")
+        return jsonify({
+            "error": f"Server error: {str(e)}"
+        }), 500
+
+
+@app.route("/api/tools/secrets-find0r", methods=["POST"])
+def secrets_find0r():
+    """Execute Secrets Find0r for SMB secret discovery (requires /opt/secrets_find0r)."""
+    try:
+        params = request.json or {}
+        cidr = str(params.get("cidr", "")).strip()
+
+        if not cidr:
+            logger.warning("🔐 Secrets Find0r called without cidr parameter")
+            return jsonify({
+                "error": "CIDR parameter is required"
+            }), 400
+
+        base_command = resolve_tool_command("secrets_find0r", "secrets_find0r")
+        command_parts = [base_command, f"--cidr {shlex.quote(cidr)}"]
+
+        def add_option(flag: str, value) -> None:
+            if value not in (None, ""):
+                command_parts.append(f"{flag} {shlex.quote(str(value))}")
+
+        username = params.get("username", "")
+        password = params.get("password", "")
+        nt_hash = params.get("nt_hash") or params.get("hash", "")
+        domain = params.get("domain", "")
+        auth_mode = str(params.get("auth_mode", params.get("authentication", "ntlm"))).lower()
+        kerberos_flag = bool(params.get("kerberos", False)) or auth_mode == "kerberos"
+
+        add_option("--username", username)
+        add_option("--password", password)
+        add_option("--hash", nt_hash)
+        add_option("--domain", domain)
+
+        if kerberos_flag:
+            command_parts.append("--kerberos")
+
+        kdc = params.get("kdc", "")
+        add_option("--kdc", kdc)
+
+        if params.get("use_cache"):
+            command_parts.append("--use-cache")
+
+        if params.get("include_unknown"):
+            command_parts.append("--include-unknown")
+
+        if params.get("no_default_keywords"):
+            command_parts.append("--no-default-keywords")
+
+        keywords = params.get("keywords") or params.get("custom_keywords", "")
+        add_option("--keywords", keywords)
+
+        add_option("--threads-enum", params.get("threads_enum"))
+        add_option("--threads-files", params.get("threads_files"))
+        add_option("--max-file-bytes", params.get("max_file_bytes"))
+        add_option("--max-unknown-bytes", params.get("max_unknown_bytes"))
+        add_option("--max-dir-depth", params.get("max_dir_depth"))
+        add_option("--port-probe-timeout", params.get("port_probe_timeout"))
+        add_option("--smb-connect-timeout", params.get("smb_connect_timeout"))
+        add_option("--smb-op-timeout", params.get("smb_op_timeout"))
+
+        additional_args = str(params.get("additional_args", "")).strip()
+        if additional_args:
+            command_parts.append(additional_args)
+
+        command = " ".join(part for part in command_parts if part)
+
+        logger.info(f"🔐 Starting Secrets Find0r scan for {cidr}")
+        result = execute_command(command, use_cache=False)
+        logger.info("📊 Secrets Find0r scan completed")
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"💥 Error in secrets-find0r endpoint: {str(e)}")
         return jsonify({
             "error": f"Server error: {str(e)}"
         }), 500
@@ -15936,6 +16304,7 @@ def httpx():
     try:
         params = request.json
         target = params.get("target", "")
+        targets = params.get("targets", "")
         target_file = params.get("target_file", "")
         probe = params.get("probe", True)
         tech_detect = params.get("tech_detect", False)
@@ -15944,18 +16313,52 @@ def httpx():
         title = params.get("title", False)
         web_server = params.get("web_server", False)
         threads = params.get("threads", 50)
+        ports = params.get("ports", "")
+        methods = params.get("methods", "")
+        output_file = params.get("output_file", "")
         additional_args = params.get("additional_args", "")
+        
+        def _collect_targets(value) -> List[str]:
+            if not value:
+                return []
+            if isinstance(value, list):
+                return [str(item).strip() for item in value if str(item).strip()]
+            text = str(value).replace("\r", "\n")
+            for sep in [",", ";"]:
+                text = text.replace(sep, "\n")
+            return [line.strip() for line in text.splitlines() if line.strip()]
 
-        if not target and not target_file:
+        collected_targets = _collect_targets(targets)
+        if target:
+            collected_targets.extend(_collect_targets(target))
+
+        if not target_file and not collected_targets:
             logger.warning("🌐 httpx called without target or target_file parameter")
             return jsonify({"error": "target or target_file parameter is required"}), 400
 
-        base_command = ["httpx", "-t", str(threads)]
+        httpx_binary = resolve_httpx_binary()
+
+        try:
+            thread_value = int(threads)
+        except (TypeError, ValueError):
+            thread_value = 50
+
+        thread_value = max(thread_value, 1)
+        base_command = [httpx_binary, "-t", str(thread_value)]
+
+        cleanup_file: Optional[Path] = None
 
         if target_file:
             base_command.extend(["-l", str(target_file)])
-        elif target:
-            base_command.extend(["-u", str(target)])
+        elif len(collected_targets) == 1:
+            base_command.extend(["-u", collected_targets[0]])
+        else:
+            temp_handle = tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8")
+            temp_handle.write("\n".join(collected_targets))
+            temp_handle.flush()
+            temp_handle.close()
+            cleanup_file = Path(temp_handle.name)
+            base_command.extend(["-l", cleanup_file.as_posix()])
 
         if probe:
             base_command.append("-probe")
@@ -15963,8 +16366,11 @@ def httpx():
         if tech_detect:
             base_command.append("-tech-detect")
 
-        if status_code:
-            base_command.append("-sc")
+        if isinstance(status_code, bool):
+            if status_code:
+                base_command.append("-sc")
+        elif status_code:
+            base_command.extend(["-mc", str(status_code)])
 
         if content_length:
             base_command.append("-cl")
@@ -15975,15 +16381,32 @@ def httpx():
         if web_server:
             base_command.append("-server")
 
+        if ports:
+            base_command.extend(["-p", str(ports)])
+
+        if methods and str(methods).upper() != "GET":
+            base_command.extend(["-x", str(methods)])
+
+        if output_file:
+            base_command.extend(["-o", str(output_file)])
+
         if additional_args:
             base_command.extend(shlex.split(additional_args))
 
         command = " ".join(shlex.quote(part) for part in base_command)
 
-        display_target = target_file or target
-        logger.info(f"🌍 Starting httpx probe: {display_target}")
-        result = execute_command(command)
-        logger.info(f"📊 httpx probe completed for {display_target}")
+        display_target = target_file or ",".join(collected_targets)
+        logger.info(f"🌍 Starting httpx probe: {display_target or '<stdin>'}")
+        try:
+            result = execute_command(command)
+        finally:
+            if cleanup_file and cleanup_file.exists():
+                try:
+                    cleanup_file.unlink()
+                except FileNotFoundError:
+                    pass
+
+        logger.info(f"📊 httpx probe completed for {display_target or '<stdin>'}")
         return jsonify(result)
     except Exception as e:
         logger.error(f"💥 Error in httpx endpoint: {str(e)}")
@@ -20851,6 +21274,111 @@ def get_alternative_tools():
     except Exception as e:
         logger.error(f"Error getting alternative tools: {str(e)}")
         return jsonify({"error": f"Server error: {str(e)}"}), 500
+
+# ============================================================================
+# BOAZ RED TEAM PAYLOAD GENERATION ENDPOINTS
+# ============================================================================
+
+@app.route("/api/boaz/generate-payload", methods=["POST"])
+def boaz_generate_payload():
+    """Generate evasive payload using the BOAZ framework."""
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+
+        if "input_file" not in data or "output_file" not in data:
+            return jsonify({"error": "input_file and output_file are required"}), 400
+
+        logger.info(
+            f"BOAZ: Generating payload {data.get('input_file')} -> {data.get('output_file')}"
+        )
+
+        result = boaz_manager.generate_payload(data)
+
+        status_code = 200 if result.get("success") else 500
+        return jsonify(result), status_code
+
+    except Exception as exc:
+        logger.error(f"Error in BOAZ payload generation: {exc}")
+        return jsonify({"error": f"Server error: {exc}", "success": False}), 500
+
+
+@app.route("/api/boaz/list-loaders", methods=["GET"])
+def boaz_list_loaders():
+    """List available BOAZ process injection loaders."""
+    try:
+        category = request.args.get("category", "all")
+        logger.info(f"BOAZ: Listing loaders (category={category})")
+
+        result = boaz_manager.list_loaders(category=category)
+        return jsonify(result), 200
+
+    except Exception as exc:
+        logger.error(f"Error listing BOAZ loaders: {exc}")
+        return jsonify({"error": f"Server error: {exc}", "success": False}), 500
+
+
+@app.route("/api/boaz/list-encoders", methods=["GET"])
+def boaz_list_encoders():
+    """List available BOAZ encoding schemes."""
+    try:
+        logger.info("BOAZ: Listing encoders")
+        result = boaz_manager.list_encoders()
+        return jsonify(result), 200
+
+    except Exception as exc:
+        logger.error(f"Error listing BOAZ encoders: {exc}")
+        return jsonify({"error": f"Server error: {exc}", "success": False}), 500
+
+
+@app.route("/api/boaz/analyze-binary", methods=["POST"])
+def boaz_analyze_binary():
+    """Analyze binary characteristics and entropy using BOAZ helpers."""
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+
+        if "file_path" not in data:
+            return jsonify({"error": "file_path is required"}), 400
+
+        logger.info(f"BOAZ: Analyzing binary {data.get('file_path')}")
+
+        result = boaz_manager.analyze_binary(data["file_path"])
+        status_code = 200 if result.get("success") else 500
+        return jsonify(result), status_code
+
+    except Exception as exc:
+        logger.error(f"Error analyzing binary: {exc}")
+        return jsonify({"error": f"Server error: {exc}", "success": False}), 500
+
+
+@app.route("/api/boaz/validate-options", methods=["POST"])
+def boaz_validate_options():
+    """Validate BOAZ configuration parameters before execution."""
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+
+        logger.info("BOAZ: Validating configuration options")
+
+        result = boaz_manager.validate_options(
+            loader=data.get("loader"),
+            encoding=data.get("encoding"),
+            compiler=data.get("compiler"),
+        )
+
+        status_code = 200 if result.get("success") else 400
+        return jsonify(result), status_code
+
+    except Exception as exc:
+        logger.error(f"Error validating BOAZ options: {exc}")
+        return jsonify({"error": f"Server error: {exc}", "success": False}), 500
 
 # Create the banner after all classes are defined
 BANNER = ModernVisualEngine.create_banner()
