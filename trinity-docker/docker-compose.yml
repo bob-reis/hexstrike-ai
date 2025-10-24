@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  trinity:
+    build: .
+    container_name: trinity-pentest
+    privileged: true
+    ports:
+      - "8888:8888"   # HexStrike
+      - "37695:37695" # Villager
+      - "25989:25989" # MCP Client
+      - "1611:1611"   # Kali Driver
+      - "8080:8080"   # Browser Agent
+    volumes:
+      - ./trinity-secrets:/opt/trinity-secrets
+      - ./workspace:/opt/trinity/workspace
+      - ./logs:/opt/trinity/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - TRINITY_MODE=full
+    restart: unless-stopped
+
+volumes:
+  trinity_workspace:
+  trinity_logs:
