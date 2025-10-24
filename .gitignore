@@ -10,6 +10,12 @@ trinity-secrets/.env.*
 */trinity-secrets/.env
 */trinity-secrets/.env.*
 
+# Allow template files
+!.env.example
+!.env.template
+!*.env.example
+!*.env.template
+
 # Trinity backup directories (contain sensitive data)
 trinity-backup-*/
 trinity-portable/

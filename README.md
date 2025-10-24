@@ -111,7 +111,53 @@ graph TD
 
 ## Installation
 
-### Quick Setup to Run the hexstrike MCPs Server
+### 🎯 Trinity Pentest Orchestrator Setup
+
+**Este repositório agora inclui a integração completa Trinity:**
+- **HexStrike AI** + **PentestGPT** + **Villager AI** + **enumdns**
+- **150+ ferramentas de segurança** + **BOAZ Framework** (77+ payload loaders)
+- **Orchestração centralizada** + **Gerenciamento de secrets seguro**
+
+### Quick Setup - Trinity Pentest Orchestrator
+
+```bash
+# 1. Clone o repositório Trinity
+git clone https://github.com/seu-usuario/hexstrike-ai.git
+cd hexstrike-ai
+
+# 2. Configure as chaves da API (OBRIGATÓRIO)
+sudo mkdir -p /opt/trinity-secrets
+sudo cp .env.example /opt/trinity-secrets/.env
+sudo nano /opt/trinity-secrets/.env  # Configure suas chaves da API
+
+# 3. Execute a instalação completa do Trinity
+sudo /opt/trinity-pentest-orchestrator.sh install
+
+# 4. Inicie o Trinity Orchestrator
+sudo /opt/trinity-pentest-orchestrator.sh start
+```
+
+### ⚙️ Configuração de API Keys (ESSENCIAL)
+
+**Configure suas chaves no arquivo `/opt/trinity-secrets/.env`:**
+
+```env
+# OpenAI API Key (OBRIGATÓRIO para PentestGPT)
+OPENAI_API_KEY=sua_chave_openai_aqui
+
+# Outras chaves opcionais
+DEEPSEEK_API_KEY=sua_chave_deepseek_aqui
+ANTHROPIC_API_KEY=sua_chave_anthropic_aqui
+```
+
+### 🚀 Acesso às Interfaces
+
+Após a instalação, acesse:
+- **HexStrike AI**: http://localhost:8888
+- **Villager AI**: http://localhost:37695
+- **Trinity Status**: http://localhost:8888/trinity-status
+
+### Legacy Setup - HexStrike AI Standalone
 
 ```bash
 # 1. Clone the repository
