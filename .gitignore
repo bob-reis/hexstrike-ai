@@ -41,6 +41,12 @@ Thumbs.db
 *.swo
 *~
 
+# Python bytecode
+*.pyc
+*.pyo
+__pycache__/
+*.so
+
 # OS generated files
 .DS_Store
 .DS_Store?
